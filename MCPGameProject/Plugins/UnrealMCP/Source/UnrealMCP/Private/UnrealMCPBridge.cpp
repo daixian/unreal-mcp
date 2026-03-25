@@ -1,3 +1,7 @@
+/**
+ * @file UnrealMCPBridge.cpp
+ * @brief Unreal MCP 桥接子系统实现，负责 TCP 服务与命令路由。
+ */
 #include "UnrealMCPBridge.h"
 #include "MCPServerRunnable.h"
 #include "Sockets.h"
@@ -62,6 +66,9 @@
 #define MCP_SERVER_HOST "127.0.0.1"
 #define MCP_SERVER_PORT 55557
 
+/**
+ * @brief 构造函数，初始化各类命令处理器。
+ */
 UUnrealMCPBridge::UUnrealMCPBridge()
 {
     EditorCommands = MakeShared<FUnrealMCPEditorCommands>();
@@ -71,6 +78,9 @@ UUnrealMCPBridge::UUnrealMCPBridge()
     UMGCommands = MakeShared<FUnrealMCPUMGCommands>();
 }
 
+/**
+ * @brief 析构函数，释放命令处理器。
+ */
 UUnrealMCPBridge::~UUnrealMCPBridge()
 {
     EditorCommands.Reset();
@@ -80,7 +90,10 @@ UUnrealMCPBridge::~UUnrealMCPBridge()
     UMGCommands.Reset();
 }
 
-// Initialize subsystem
+/**
+ * @brief 编辑器子系统初始化。
+ * @param [in] Collection 子系统集合。
+ */
 void UUnrealMCPBridge::Initialize(FSubsystemCollectionBase& Collection)
 {
     UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Initializing"));
@@ -96,14 +109,19 @@ void UUnrealMCPBridge::Initialize(FSubsystemCollectionBase& Collection)
     StartServer();
 }
 
-// Clean up resources when subsystem is destroyed
+/**
+ * @brief 编辑器子系统反初始化。
+ */
 void UUnrealMCPBridge::Deinitialize()
 {
     UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Shutting down"));
     StopServer();
 }
 
-// Start the MCP server
+/**
+ * @brief 启动 TCP 监听服务并创建服务线程。
+ * @note 若监听套接字或线程创建失败，会提前返回并记录错误日志。
+ */
 void UUnrealMCPBridge::StartServer()
 {
     if (bIsRunning)
@@ -166,7 +184,9 @@ void UUnrealMCPBridge::StartServer()
     }
 }
 
-// Stop the MCP server
+/**
+ * @brief 停止 TCP 服务并释放线程与套接字资源。
+ */
 void UUnrealMCPBridge::StopServer()
 {
     if (!bIsRunning)
@@ -200,7 +220,13 @@ void UUnrealMCPBridge::StopServer()
     UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Server stopped"));
 }
 
-// Execute a command received from a client
+/**
+ * @brief 执行来自客户端的命令并返回 JSON 字符串。
+ * @param [in] CommandType 命令类型。
+ * @param [in] Params 命令参数。
+ * @return FString 序列化后的 JSON 响应。
+ * @note 实际命令处理在游戏线程中执行，以避免跨线程访问编辑器对象。
+ */
 FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TSharedPtr<FJsonObject>& Params)
 {
     UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Executing command: %s"), *CommandType);
@@ -229,12 +255,17 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("duplicate_asset") ||
                      CommandType == TEXT("load_level") ||
                      CommandType == TEXT("save_current_level") ||
+                     CommandType == TEXT("start_pie") ||
+                     CommandType == TEXT("stop_pie") ||
+                     CommandType == TEXT("get_play_state") ||
                      CommandType == TEXT("find_actors_by_name") ||
                      CommandType == TEXT("spawn_actor") ||
                      CommandType == TEXT("create_actor") ||
                      CommandType == TEXT("delete_actor") || 
                      CommandType == TEXT("set_actor_transform") ||
                      CommandType == TEXT("get_actor_properties") ||
+                     CommandType == TEXT("get_actor_components") ||
+                     CommandType == TEXT("get_scene_components") ||
                      CommandType == TEXT("set_actor_property") ||
                      CommandType == TEXT("spawn_blueprint_actor") ||
                      CommandType == TEXT("focus_viewport") || 

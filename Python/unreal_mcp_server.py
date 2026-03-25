@@ -303,14 +303,19 @@ def info():
     ### Viewport and Screenshots
     - `focus_viewport(target, location, distance, orientation)` - Focus viewport
     - `take_screenshot(filename, show_ui, resolution)` - Capture screenshots
+    - `start_pie(simulate=False)` - Start Play-In-Editor session
+    - `stop_pie()` - Stop current Play-In-Editor session
+    - `get_play_state()` - Query current Play-In-Editor running state
 
     ### Actor Management
-    - `get_actors_in_level()` - List all actors in current level
-    - `find_actors_by_name(pattern)` - Find actors by name pattern
+    - `get_actors_in_level(include_components=False, detailed_components=True, world_type="auto")` - List all actors in selected world (auto/editor/pie)
+    - `find_actors_by_name(pattern, world_type="auto", include_components=False, detailed_components=True)` - Find actors by name pattern
+    - `get_scene_components(pattern="", detailed_components=True, world_type="auto")` - Query all scene actors and their components
+    - `get_actor_components(name="", actor_path="", detailed_components=True, world_type="auto")` - Query all components for one actor
     - `spawn_actor(name, type, location=[0,0,0], rotation=[0,0,0], scale=[1,1,1])` - Create actors
     - `delete_actor(name)` - Remove actors
     - `set_actor_transform(name, location, rotation, scale)` - Modify actor transform
-    - `get_actor_properties(name)` - Get actor properties
+    - `get_actor_properties(name="", actor_path="", include_components=True, detailed_components=True, world_type="auto")` - Get actor properties
     
     ## Blueprint Management
     - `create_blueprint(name, parent_class)` - Create new Blueprint classes

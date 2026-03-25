@@ -1,3 +1,7 @@
+/**
+ * @file MCPServerRunnable.cpp
+ * @brief MCP socket 服务线程实现，负责连接管理与消息收发。
+ */
 #include "MCPServerRunnable.h"
 #include "UnrealMCPBridge.h"
 #include "Sockets.h"
@@ -11,9 +15,14 @@
 #include "Misc/ScopeLock.h"
 #include "HAL/PlatformTime.h"
 
-// Buffer size for receiving data
+/** @brief 接收缓冲区大小（字节）。 */
 constexpr int32 MCPReceiveBufferSize = 8192;
 
+/**
+ * @brief 构造函数。
+ * @param [in] InBridge 命令执行桥接对象。
+ * @param [in] InListenerSocket 已创建的监听套接字。
+ */
 FMCPServerRunnable::FMCPServerRunnable(UUnrealMCPBridge* InBridge, TSharedPtr<FSocket> InListenerSocket)
     : Bridge(InBridge)
     , ListenerSocket(InListenerSocket)
@@ -22,16 +31,28 @@ FMCPServerRunnable::FMCPServerRunnable(UUnrealMCPBridge* InBridge, TSharedPtr<FS
     UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Created server runnable"));
 }
 
+/**
+ * @brief 析构函数。
+ */
 FMCPServerRunnable::~FMCPServerRunnable()
 {
     // Note: We don't delete the sockets here as they're owned by the bridge
 }
 
+/**
+ * @brief 线程初始化函数。
+ * @return bool 始终返回 true。
+ */
 bool FMCPServerRunnable::Init()
 {
     return true;
 }
 
+/**
+ * @brief 线程主循环：接收连接、读取 JSON 命令并回包。
+ * @return uint32 线程退出码。
+ * @todo 当前通过 `Buffer[BytesRead] = '\0'` 做终止符写入；当 BytesRead 恰好等于缓冲区长度时存在越界风险。
+ */
 uint32 FMCPServerRunnable::Run()
 {
     UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Server thread starting..."));
@@ -155,15 +176,25 @@ uint32 FMCPServerRunnable::Run()
     return 0;
 }
 
+/**
+ * @brief 请求停止线程主循环。
+ */
 void FMCPServerRunnable::Stop()
 {
     bRunning = false;
 }
 
+/**
+ * @brief 线程退出回调。
+ */
 void FMCPServerRunnable::Exit()
 {
 }
 
+/**
+ * @brief 处理单个客户端连接。
+ * @param [in] InClientSocket 客户端连接套接字。
+ */
 void FMCPServerRunnable::HandleClientConnection(TSharedPtr<FSocket> InClientSocket)
 {
     if (!InClientSocket.IsValid())
@@ -269,6 +300,11 @@ void FMCPServerRunnable::HandleClientConnection(TSharedPtr<FSocket> InClientSock
     UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Exited message receive loop"));
 }
 
+/**
+ * @brief 解析并执行单条消息。
+ * @param [in] Client 客户端套接字。
+ * @param [in] Message 原始 JSON 文本。
+ */
 void FMCPServerRunnable::ProcessMessage(TSharedPtr<FSocket> Client, const FString& Message)
 {
     UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Processing message: %s"), *Message);

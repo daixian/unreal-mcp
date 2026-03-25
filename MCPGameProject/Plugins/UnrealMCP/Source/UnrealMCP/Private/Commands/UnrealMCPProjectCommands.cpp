@@ -1,11 +1,24 @@
+/**
+ * @file UnrealMCPProjectCommands.cpp
+ * @brief 项目级 MCP 命令处理实现。
+ */
 #include "Commands/UnrealMCPProjectCommands.h"
 #include "Commands/UnrealMCPCommonUtils.h"
 #include "GameFramework/InputSettings.h"
 
+/**
+ * @brief 构造函数。
+ */
 FUnrealMCPProjectCommands::FUnrealMCPProjectCommands()
 {
 }
 
+/**
+ * @brief 分发项目级命令到具体处理函数。
+ * @param [in] CommandType 命令类型。
+ * @param [in] Params 命令参数。
+ * @return TSharedPtr<FJsonObject> 命令结果或错误信息。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCommand(const FString& CommandType, const TSharedPtr<FJsonObject>& Params)
 {
     if (CommandType == TEXT("create_input_mapping"))
@@ -16,6 +29,12 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCommand(const FString& 
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown project command: %s"), *CommandType));
 }
 
+/**
+ * @brief 创建输入映射配置（Action/Axis）。
+ * @param [in] Params 输入映射参数。
+ * @return TSharedPtr<FJsonObject> 执行结果。
+ * @note 该实现会将配置直接写入默认输入设置并保存。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCreateInputMapping(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters

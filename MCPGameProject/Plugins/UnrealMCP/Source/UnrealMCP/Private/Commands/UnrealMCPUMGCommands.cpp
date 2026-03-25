@@ -1,3 +1,7 @@
+/**
+ * @file UnrealMCPUMGCommands.cpp
+ * @brief UMG 命令处理实现，负责 Widget Blueprint 的创建与编辑。
+ */
 #include "Commands/UnrealMCPUMGCommands.h"
 #include "Commands/UnrealMCPCommonUtils.h"
 #include "Editor.h"
@@ -26,10 +30,19 @@
 #include "Kismet2/KismetEditorUtilities.h"
 #include "K2Node_Event.h"
 
+/**
+ * @brief 构造函数。
+ */
 FUnrealMCPUMGCommands::FUnrealMCPUMGCommands()
 {
 }
 
+/**
+ * @brief 分发 UMG 命令到具体处理函数。
+ * @param [in] CommandName 命令名称。
+ * @param [in] Params 命令参数。
+ * @return TSharedPtr<FJsonObject> 执行结果或错误信息。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleCommand(const FString& CommandName, const TSharedPtr<FJsonObject>& Params)
 {
 	if (CommandName == TEXT("create_umg_widget_blueprint"))
@@ -60,6 +73,11 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleCommand(const FString& Comm
 	return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown UMG command: %s"), *CommandName));
 }
 
+/**
+ * @brief 创建 Widget Blueprint 资产。
+ * @param [in] Params 创建参数。
+ * @return TSharedPtr<FJsonObject> 创建结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleCreateUMGWidgetBlueprint(const TSharedPtr<FJsonObject>& Params)
 {
 	// Get required parameters
@@ -126,6 +144,11 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleCreateUMGWidgetBlueprint(co
 	return ResultObj;
 }
 
+/**
+ * @brief 向 Widget Blueprint 添加 TextBlock。
+ * @param [in] Params 控件参数。
+ * @return TSharedPtr<FJsonObject> 添加结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddTextBlockToWidget(const TSharedPtr<FJsonObject>& Params)
 {
 	// Get required parameters
@@ -195,6 +218,11 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddTextBlockToWidget(const 
 	return ResultObj;
 }
 
+/**
+ * @brief 将 Widget 添加到游戏视口。
+ * @param [in] Params 视口添加参数。
+ * @return TSharedPtr<FJsonObject> 添加结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddWidgetToViewport(const TSharedPtr<FJsonObject>& Params)
 {
 	// Get required parameters
@@ -236,6 +264,11 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddWidgetToViewport(const T
 	return ResultObj;
 }
 
+/**
+ * @brief 向 Widget Blueprint 添加 Button。
+ * @param [in] Params 按钮参数。
+ * @return TSharedPtr<FJsonObject> 添加结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddButtonToWidget(const TSharedPtr<FJsonObject>& Params)
 {
 	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
@@ -319,6 +352,11 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddButtonToWidget(const TSh
 	return Response;
 }
 
+/**
+ * @brief 绑定控件事件到蓝图函数。
+ * @param [in] Params 事件绑定参数。
+ * @return TSharedPtr<FJsonObject> 绑定结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleBindWidgetEvent(const TSharedPtr<FJsonObject>& Params)
 {
 	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
@@ -441,6 +479,11 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleBindWidgetEvent(const TShar
 	return Response;
 }
 
+/**
+ * @brief 配置 TextBlock 的属性绑定。
+ * @param [in] Params 绑定参数。
+ * @return TSharedPtr<FJsonObject> 配置结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleSetTextBlockBinding(const TSharedPtr<FJsonObject>& Params)
 {
 	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();

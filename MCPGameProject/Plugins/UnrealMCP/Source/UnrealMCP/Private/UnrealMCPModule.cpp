@@ -1,3 +1,7 @@
+/**
+ * @file UnrealMCPModule.cpp
+ * @brief UnrealMCP 模块生命周期实现。
+ */
 #include "UnrealMCPModule.h"
 #include "UnrealMCPBridge.h"
 #include "Modules/ModuleManager.h"
@@ -6,11 +10,17 @@
 
 #define LOCTEXT_NAMESPACE "FUnrealMCPModule"
 
+/**
+ * @brief 插件模块启动入口。
+ */
 void FUnrealMCPModule::StartupModule()
 {
 	UE_LOG(LogTemp, Display, TEXT("Unreal MCP Module has started"));
 }
 
+/**
+ * @brief 插件模块关闭入口。
+ */
 void FUnrealMCPModule::ShutdownModule()
 {
 	UE_LOG(LogTemp, Display, TEXT("Unreal MCP Module has shut down"));

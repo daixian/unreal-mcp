@@ -15,8 +15,19 @@ def register_editor_tools(mcp: FastMCP):
     """Register editor tools with the MCP server."""
     
     @mcp.tool()
-    def get_actors_in_level(ctx: Context) -> List[Dict[str, Any]]:
-        """Get a list of all actors in the current level."""
+    def get_actors_in_level(
+        ctx: Context,
+        include_components: bool = False,
+        detailed_components: bool = True,
+        world_type: str = "auto"
+    ) -> List[Dict[str, Any]]:
+        """Get a list of all actors in the current level.
+        
+        Args:
+            include_components: Whether to include each actor's component list
+            detailed_components: Whether to include detailed component fields
+            world_type: Target world to query: auto/editor/pie
+        """
         from unreal_mcp_server import get_unreal_connection
         
         try:
@@ -24,8 +35,12 @@ def register_editor_tools(mcp: FastMCP):
             if not unreal:
                 logger.warning("Failed to connect to Unreal Engine")
                 return []
-                
-            response = unreal.send_command("get_actors_in_level", {})
+
+            response = unreal.send_command("get_actors_in_level", {
+                "include_components": include_components,
+                "detailed_components": detailed_components,
+                "world_type": world_type
+            })
             
             if not response:
                 logger.warning("No response from Unreal Engine")
@@ -52,8 +67,21 @@ def register_editor_tools(mcp: FastMCP):
             return []
 
     @mcp.tool()
-    def find_actors_by_name(ctx: Context, pattern: str) -> List[str]:
-        """Find actors by name pattern."""
+    def find_actors_by_name(
+        ctx: Context,
+        pattern: str,
+        world_type: str = "auto",
+        include_components: bool = False,
+        detailed_components: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Find actors by name pattern.
+        
+        Args:
+            pattern: Name pattern to match
+            world_type: Target world to query: auto/editor/pie
+            include_components: Whether to include each actor's component list
+            detailed_components: Whether to include detailed component fields
+        """
         from unreal_mcp_server import get_unreal_connection
         
         try:
@@ -63,13 +91,20 @@ def register_editor_tools(mcp: FastMCP):
                 return []
                 
             response = unreal.send_command("find_actors_by_name", {
-                "pattern": pattern
+                "pattern": pattern,
+                "world_type": world_type,
+                "include_components": include_components,
+                "detailed_components": detailed_components
             })
             
             if not response:
                 return []
-                
-            return response.get("actors", [])
+
+            if "result" in response and "actors" in response["result"]:
+                return response["result"]["actors"]
+            if "actors" in response:
+                return response["actors"]
+            return []
             
         except Exception as e:
             logger.error(f"Error finding actors: {e}")
@@ -196,8 +231,23 @@ def register_editor_tools(mcp: FastMCP):
             return {}
     
     @mcp.tool()
-    def get_actor_properties(ctx: Context, name: str) -> Dict[str, Any]:
-        """Get all properties of an actor."""
+    def get_actor_properties(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        include_components: bool = True,
+        detailed_components: bool = True,
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Get all properties of an actor.
+        
+        Args:
+            name: Name of actor (used when actor_path is not provided)
+            actor_path: Full actor path for exact lookup
+            include_components: Whether to include component details
+            detailed_components: Whether to include detailed component fields
+            world_type: Target world to query: auto/editor/pie
+        """
         from unreal_mcp_server import get_unreal_connection
         
         try:
@@ -205,15 +255,165 @@ def register_editor_tools(mcp: FastMCP):
             if not unreal:
                 logger.error("Failed to connect to Unreal Engine")
                 return {"success": False, "message": "Failed to connect to Unreal Engine"}
-                
-            response = unreal.send_command("get_actor_properties", {
-                "name": name
-            })
+
+            if not name and not actor_path:
+                return {"success": False, "message": "Either 'name' or 'actor_path' is required"}
+
+            params = {
+                "include_components": include_components,
+                "detailed_components": detailed_components,
+                "world_type": world_type
+            }
+            if actor_path:
+                params["actor_path"] = actor_path
+            else:
+                params["name"] = name
+
+            response = unreal.send_command("get_actor_properties", params)
             return response or {}
             
         except Exception as e:
             logger.error(f"Error getting properties: {e}")
             return {}
+
+    @mcp.tool()
+    def get_actor_components(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        detailed_components: bool = True,
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Get all components for a single actor.
+        
+        Args:
+            name: Actor name (used when actor_path is not provided)
+            actor_path: Full actor path for exact lookup
+            detailed_components: Whether to include detailed component fields
+            world_type: Target world to query: auto/editor/pie
+        """
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            if not name and not actor_path:
+                return {"success": False, "message": "Either 'name' or 'actor_path' is required"}
+
+            params = {
+                "detailed_components": detailed_components,
+                "world_type": world_type
+            }
+            if actor_path:
+                params["actor_path"] = actor_path
+            else:
+                params["name"] = name
+
+            response = unreal.send_command("get_actor_components", params)
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error getting actor components: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_scene_components(
+        ctx: Context,
+        pattern: str = "",
+        detailed_components: bool = True,
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Get components for all actors in current scene.
+        
+        Args:
+            pattern: Optional actor name filter
+            detailed_components: Whether to include detailed component fields
+            world_type: Target world to query: auto/editor/pie
+        """
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "detailed_components": detailed_components,
+                "world_type": world_type
+            }
+            if pattern:
+                params["pattern"] = pattern
+
+            response = unreal.send_command("get_scene_components", params)
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error getting scene components: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def start_pie(ctx: Context, simulate: bool = False) -> Dict[str, Any]:
+        """Start Play-In-Editor (PIE) session.
+        
+        Args:
+            simulate: If true, start in Simulate-In-Editor mode
+        """
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("start_pie", {
+                "simulate": simulate
+            })
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error starting PIE: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def stop_pie(ctx: Context) -> Dict[str, Any]:
+        """Stop the current Play-In-Editor (PIE) session."""
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("stop_pie", {})
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error stopping PIE: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_play_state(ctx: Context) -> Dict[str, Any]:
+        """Get current Play-In-Editor (PIE) running state."""
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("get_play_state", {})
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error getting play state: {e}")
+            return {"success": False, "message": str(e)}
 
     @mcp.tool()
     def set_actor_property(

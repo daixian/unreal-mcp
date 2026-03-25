@@ -1,3 +1,7 @@
+/**
+ * @file UnrealMCPCommonUtils.cpp
+ * @brief UnrealMCP 公共工具实现，提供 JSON/Blueprint/反射辅助能力。
+ */
 #include "Commands/UnrealMCPCommonUtils.h"
 #include "GameFramework/Actor.h"
 #include "Engine/Blueprint.h"
@@ -12,10 +16,13 @@
 #include "K2Node_Self.h"
 #include "EdGraphSchema_K2.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Components/ActorComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/LightComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
 #include "UObject/UObjectIterator.h"
 #include "Engine/Selection.h"
 #include "EditorAssetLibrary.h"
@@ -26,7 +33,13 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 
-// JSON Utilities
+/** @brief JSON 工具函数分组。 */
+
+/**
+ * @brief 创建统一错误响应对象。
+ * @param [in] Message 错误信息。
+ * @return TSharedPtr<FJsonObject> 错误响应。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPCommonUtils::CreateErrorResponse(const FString& Message)
 {
     TSharedPtr<FJsonObject> ResponseObject = MakeShared<FJsonObject>();
@@ -35,6 +48,11 @@ TSharedPtr<FJsonObject> FUnrealMCPCommonUtils::CreateErrorResponse(const FString
     return ResponseObject;
 }
 
+/**
+ * @brief 创建统一成功响应对象。
+ * @param [in] Data 可选业务数据。
+ * @return TSharedPtr<FJsonObject> 成功响应。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPCommonUtils::CreateSuccessResponse(const TSharedPtr<FJsonObject>& Data)
 {
     TSharedPtr<FJsonObject> ResponseObject = MakeShared<FJsonObject>();
@@ -48,6 +66,12 @@ TSharedPtr<FJsonObject> FUnrealMCPCommonUtils::CreateSuccessResponse(const TShar
     return ResponseObject;
 }
 
+/**
+ * @brief 从 JSON 数组字段读取 int32 数组。
+ * @param [in] JsonObject 源 JSON 对象。
+ * @param [in] FieldName 字段名称。
+ * @param [out] OutArray 输出整型数组。
+ */
 void FUnrealMCPCommonUtils::GetIntArrayFromJson(const TSharedPtr<FJsonObject>& JsonObject, const FString& FieldName, TArray<int32>& OutArray)
 {
     OutArray.Reset();
@@ -67,6 +91,12 @@ void FUnrealMCPCommonUtils::GetIntArrayFromJson(const TSharedPtr<FJsonObject>& J
     }
 }
 
+/**
+ * @brief 从 JSON 数组字段读取 float 数组。
+ * @param [in] JsonObject 源 JSON 对象。
+ * @param [in] FieldName 字段名称。
+ * @param [out] OutArray 输出浮点数组。
+ */
 void FUnrealMCPCommonUtils::GetFloatArrayFromJson(const TSharedPtr<FJsonObject>& JsonObject, const FString& FieldName, TArray<float>& OutArray)
 {
     OutArray.Reset();
@@ -86,6 +116,12 @@ void FUnrealMCPCommonUtils::GetFloatArrayFromJson(const TSharedPtr<FJsonObject>&
     }
 }
 
+/**
+ * @brief 解析二维向量字段。
+ * @param [in] JsonObject 源 JSON 对象。
+ * @param [in] FieldName 字段名称。
+ * @return FVector2D 解析结果。
+ */
 FVector2D FUnrealMCPCommonUtils::GetVector2DFromJson(const TSharedPtr<FJsonObject>& JsonObject, const FString& FieldName)
 {
     FVector2D Result(0.0f, 0.0f);
@@ -105,6 +141,12 @@ FVector2D FUnrealMCPCommonUtils::GetVector2DFromJson(const TSharedPtr<FJsonObjec
     return Result;
 }
 
+/**
+ * @brief 解析三维向量字段。
+ * @param [in] JsonObject 源 JSON 对象。
+ * @param [in] FieldName 字段名称。
+ * @return FVector 解析结果。
+ */
 FVector FUnrealMCPCommonUtils::GetVectorFromJson(const TSharedPtr<FJsonObject>& JsonObject, const FString& FieldName)
 {
     FVector Result(0.0f, 0.0f, 0.0f);
@@ -125,6 +167,12 @@ FVector FUnrealMCPCommonUtils::GetVectorFromJson(const TSharedPtr<FJsonObject>& 
     return Result;
 }
 
+/**
+ * @brief 解析旋转字段。
+ * @param [in] JsonObject 源 JSON 对象。
+ * @param [in] FieldName 字段名称。
+ * @return FRotator 解析结果。
+ */
 FRotator FUnrealMCPCommonUtils::GetRotatorFromJson(const TSharedPtr<FJsonObject>& JsonObject, const FString& FieldName)
 {
     FRotator Result(0.0f, 0.0f, 0.0f);
@@ -146,17 +194,32 @@ FRotator FUnrealMCPCommonUtils::GetRotatorFromJson(const TSharedPtr<FJsonObject>
 }
 
 // Blueprint Utilities
+/**
+ * @brief 按名称查找 Blueprint（代理到精确查找函数）。
+ * @param [in] BlueprintName 蓝图名称。
+ * @return UBlueprint* 查找结果。
+ */
 UBlueprint* FUnrealMCPCommonUtils::FindBlueprint(const FString& BlueprintName)
 {
     return FindBlueprintByName(BlueprintName);
 }
 
+/**
+ * @brief 在资产注册表中按名称精确查找 Blueprint。
+ * @param [in] BlueprintName 蓝图名称。
+ * @return UBlueprint* 查找结果。
+ */
 UBlueprint* FUnrealMCPCommonUtils::FindBlueprintByName(const FString& BlueprintName)
 {
     FString AssetPath = TEXT("/Game/Blueprints/") + BlueprintName;
     return LoadObject<UBlueprint>(nullptr, *AssetPath);
 }
 
+/**
+ * @brief 查找或创建 Blueprint 事件图。
+ * @param [in] Blueprint 目标蓝图。
+ * @return UEdGraph* 事件图对象。
+ */
 UEdGraph* FUnrealMCPCommonUtils::FindOrCreateEventGraph(UBlueprint* Blueprint)
 {
     if (!Blueprint)
@@ -180,6 +243,13 @@ UEdGraph* FUnrealMCPCommonUtils::FindOrCreateEventGraph(UBlueprint* Blueprint)
 }
 
 // Blueprint node utilities
+/**
+ * @brief 创建事件节点并放置到指定位置。
+ * @param [in] Graph 目标图。
+ * @param [in] EventName 事件名。
+ * @param [in] Position 节点位置。
+ * @return UK2Node_Event* 创建后的节点。
+ */
 UK2Node_Event* FUnrealMCPCommonUtils::CreateEventNode(UEdGraph* Graph, const FString& EventName, const FVector2D& Position)
 {
     if (!Graph)
@@ -232,6 +302,13 @@ UK2Node_Event* FUnrealMCPCommonUtils::CreateEventNode(UEdGraph* Graph, const FSt
     return EventNode;
 }
 
+/**
+ * @brief 创建函数调用节点。
+ * @param [in] Graph 目标图。
+ * @param [in] Function 目标函数。
+ * @param [in] Position 节点位置。
+ * @return UK2Node_CallFunction* 创建后的节点。
+ */
 UK2Node_CallFunction* FUnrealMCPCommonUtils::CreateFunctionCallNode(UEdGraph* Graph, UFunction* Function, const FVector2D& Position)
 {
     if (!Graph || !Function)
@@ -251,6 +328,14 @@ UK2Node_CallFunction* FUnrealMCPCommonUtils::CreateFunctionCallNode(UEdGraph* Gr
     return FunctionNode;
 }
 
+/**
+ * @brief 创建变量读取节点。
+ * @param [in] Graph 目标图。
+ * @param [in] Blueprint 变量所属蓝图。
+ * @param [in] VariableName 变量名。
+ * @param [in] Position 节点位置。
+ * @return UK2Node_VariableGet* 创建后的节点。
+ */
 UK2Node_VariableGet* FUnrealMCPCommonUtils::CreateVariableGetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VariableName, const FVector2D& Position)
 {
     if (!Graph || !Blueprint)
@@ -278,6 +363,14 @@ UK2Node_VariableGet* FUnrealMCPCommonUtils::CreateVariableGetNode(UEdGraph* Grap
     return nullptr;
 }
 
+/**
+ * @brief 创建变量写入节点。
+ * @param [in] Graph 目标图。
+ * @param [in] Blueprint 变量所属蓝图。
+ * @param [in] VariableName 变量名。
+ * @param [in] Position 节点位置。
+ * @return UK2Node_VariableSet* 创建后的节点。
+ */
 UK2Node_VariableSet* FUnrealMCPCommonUtils::CreateVariableSetNode(UEdGraph* Graph, UBlueprint* Blueprint, const FString& VariableName, const FVector2D& Position)
 {
     if (!Graph || !Blueprint)
@@ -305,6 +398,13 @@ UK2Node_VariableSet* FUnrealMCPCommonUtils::CreateVariableSetNode(UEdGraph* Grap
     return nullptr;
 }
 
+/**
+ * @brief 创建输入动作节点。
+ * @param [in] Graph 目标图。
+ * @param [in] ActionName 动作名。
+ * @param [in] Position 节点位置。
+ * @return UK2Node_InputAction* 创建后的节点。
+ */
 UK2Node_InputAction* FUnrealMCPCommonUtils::CreateInputActionNode(UEdGraph* Graph, const FString& ActionName, const FVector2D& Position)
 {
     if (!Graph)
@@ -324,6 +424,12 @@ UK2Node_InputAction* FUnrealMCPCommonUtils::CreateInputActionNode(UEdGraph* Grap
     return InputActionNode;
 }
 
+/**
+ * @brief 创建 Self 引用节点。
+ * @param [in] Graph 目标图。
+ * @param [in] Position 节点位置。
+ * @return UK2Node_Self* 创建后的节点。
+ */
 UK2Node_Self* FUnrealMCPCommonUtils::CreateSelfReferenceNode(UEdGraph* Graph, const FVector2D& Position)
 {
     if (!Graph)
@@ -342,8 +448,17 @@ UK2Node_Self* FUnrealMCPCommonUtils::CreateSelfReferenceNode(UEdGraph* Graph, co
     return SelfNode;
 }
 
+/**
+ * @brief 连接两个节点的指定引脚。
+ * @param [in] Graph 目标图。
+ * @param [in] SourceNode 源节点。
+ * @param [in] SourcePinName 源引脚名。
+ * @param [in] TargetNode 目标节点。
+ * @param [in] TargetPinName 目标引脚名。
+ * @return bool 连接是否成功。
+ */
 bool FUnrealMCPCommonUtils::ConnectGraphNodes(UEdGraph* Graph, UEdGraphNode* SourceNode, const FString& SourcePinName, 
-                                           UEdGraphNode* TargetNode, const FString& TargetPinName)
+                                            UEdGraphNode* TargetNode, const FString& TargetPinName)
 {
     if (!Graph || !SourceNode || !TargetNode)
     {
@@ -362,6 +477,13 @@ bool FUnrealMCPCommonUtils::ConnectGraphNodes(UEdGraph* Graph, UEdGraphNode* Sou
     return false;
 }
 
+/**
+ * @brief 在节点中查找指定名称/方向的引脚。
+ * @param [in] Node 目标节点。
+ * @param [in] PinName 引脚名称。
+ * @param [in] Direction 引脚方向过滤条件。
+ * @return UEdGraphPin* 查找结果。
+ */
 UEdGraphPin* FUnrealMCPCommonUtils::FindPin(UEdGraphNode* Node, const FString& PinName, EEdGraphPinDirection Direction)
 {
     if (!Node)
@@ -418,76 +540,256 @@ UEdGraphPin* FUnrealMCPCommonUtils::FindPin(UEdGraphNode* Node, const FString& P
 }
 
 // Actor utilities
-TSharedPtr<FJsonValue> FUnrealMCPCommonUtils::ActorToJson(AActor* Actor)
+/**
+ * @brief 将 FVector 序列化为 JSON 数组。
+ * @param [in] VectorValue 向量值。
+ * @return TArray<TSharedPtr<FJsonValue>> JSON 数组。
+ */
+static TArray<TSharedPtr<FJsonValue>> UnrealMCPVectorToJsonArray(const FVector& VectorValue)
 {
-    if (!Actor)
+    TArray<TSharedPtr<FJsonValue>> JsonArray;
+    JsonArray.Add(MakeShared<FJsonValueNumber>(VectorValue.X));
+    JsonArray.Add(MakeShared<FJsonValueNumber>(VectorValue.Y));
+    JsonArray.Add(MakeShared<FJsonValueNumber>(VectorValue.Z));
+    return JsonArray;
+}
+
+/**
+ * @brief 将 FRotator 序列化为 JSON 数组。
+ * @param [in] RotatorValue 旋转值。
+ * @return TArray<TSharedPtr<FJsonValue>> JSON 数组。
+ */
+static TArray<TSharedPtr<FJsonValue>> UnrealMCPRotatorToJsonArray(const FRotator& RotatorValue)
+{
+    TArray<TSharedPtr<FJsonValue>> JsonArray;
+    JsonArray.Add(MakeShared<FJsonValueNumber>(RotatorValue.Pitch));
+    JsonArray.Add(MakeShared<FJsonValueNumber>(RotatorValue.Yaw));
+    JsonArray.Add(MakeShared<FJsonValueNumber>(RotatorValue.Roll));
+    return JsonArray;
+}
+
+/**
+ * @brief 将 FLinearColor 序列化为 JSON 数组。
+ * @param [in] ColorValue 颜色值。
+ * @return TArray<TSharedPtr<FJsonValue>> JSON 数组。
+ */
+static TArray<TSharedPtr<FJsonValue>> UnrealMCPColorToJsonArray(const FLinearColor& ColorValue)
+{
+    TArray<TSharedPtr<FJsonValue>> JsonArray;
+    JsonArray.Add(MakeShared<FJsonValueNumber>(ColorValue.R));
+    JsonArray.Add(MakeShared<FJsonValueNumber>(ColorValue.G));
+    JsonArray.Add(MakeShared<FJsonValueNumber>(ColorValue.B));
+    JsonArray.Add(MakeShared<FJsonValueNumber>(ColorValue.A));
+    return JsonArray;
+}
+
+/**
+ * @brief 将组件移动性枚举转为文本。
+ * @param [in] Mobility 组件移动性。
+ * @return FString 文本形式的移动性。
+ */
+static FString UnrealMCPMobilityToString(EComponentMobility::Type Mobility)
+{
+    switch (Mobility)
+    {
+    case EComponentMobility::Static:
+        return TEXT("Static");
+    case EComponentMobility::Stationary:
+        return TEXT("Stationary");
+    case EComponentMobility::Movable:
+        return TEXT("Movable");
+    default:
+        return TEXT("Unknown");
+    }
+}
+
+/**
+ * @brief 将组件转换为 JSON 值。
+ * @param [in] Component 目标组件。
+ * @param [in] bDetailed 是否包含详细字段。
+ * @return TSharedPtr<FJsonValue> 序列化后的 JSON 值。
+ */
+TSharedPtr<FJsonValue> FUnrealMCPCommonUtils::ComponentToJson(UActorComponent* Component, bool bDetailed)
+{
+    if (!Component)
     {
         return MakeShared<FJsonValueNull>();
     }
-    
-    TSharedPtr<FJsonObject> ActorObject = MakeShared<FJsonObject>();
-    ActorObject->SetStringField(TEXT("name"), Actor->GetName());
-    ActorObject->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
-    
-    FVector Location = Actor->GetActorLocation();
-    TArray<TSharedPtr<FJsonValue>> LocationArray;
-    LocationArray.Add(MakeShared<FJsonValueNumber>(Location.X));
-    LocationArray.Add(MakeShared<FJsonValueNumber>(Location.Y));
-    LocationArray.Add(MakeShared<FJsonValueNumber>(Location.Z));
-    ActorObject->SetArrayField(TEXT("location"), LocationArray);
-    
-    FRotator Rotation = Actor->GetActorRotation();
-    TArray<TSharedPtr<FJsonValue>> RotationArray;
-    RotationArray.Add(MakeShared<FJsonValueNumber>(Rotation.Pitch));
-    RotationArray.Add(MakeShared<FJsonValueNumber>(Rotation.Yaw));
-    RotationArray.Add(MakeShared<FJsonValueNumber>(Rotation.Roll));
-    ActorObject->SetArrayField(TEXT("rotation"), RotationArray);
-    
-    FVector Scale = Actor->GetActorScale3D();
-    TArray<TSharedPtr<FJsonValue>> ScaleArray;
-    ScaleArray.Add(MakeShared<FJsonValueNumber>(Scale.X));
-    ScaleArray.Add(MakeShared<FJsonValueNumber>(Scale.Y));
-    ScaleArray.Add(MakeShared<FJsonValueNumber>(Scale.Z));
-    ActorObject->SetArrayField(TEXT("scale"), ScaleArray);
-    
-    return MakeShared<FJsonValueObject>(ActorObject);
+
+    TSharedPtr<FJsonObject> ComponentObject = MakeShared<FJsonObject>();
+    ComponentObject->SetStringField(TEXT("name"), Component->GetName());
+    ComponentObject->SetStringField(TEXT("class"), Component->GetClass()->GetName());
+    ComponentObject->SetStringField(TEXT("path"), Component->GetPathName());
+
+    AActor* OwnerActor = Component->GetOwner();
+    ComponentObject->SetStringField(TEXT("owner_name"), OwnerActor ? OwnerActor->GetName() : TEXT(""));
+    ComponentObject->SetStringField(TEXT("owner_path"), OwnerActor ? OwnerActor->GetPathName() : TEXT(""));
+    ComponentObject->SetBoolField(TEXT("active"), Component->IsActive());
+    ComponentObject->SetBoolField(TEXT("registered"), Component->IsRegistered());
+    ComponentObject->SetBoolField(TEXT("component_tick_enabled"), Component->IsComponentTickEnabled());
+
+    TArray<TSharedPtr<FJsonValue>> ComponentTagArray;
+    for (const FName& TagName : Component->ComponentTags)
+    {
+        ComponentTagArray.Add(MakeShared<FJsonValueString>(TagName.ToString()));
+    }
+    ComponentObject->SetArrayField(TEXT("component_tags"), ComponentTagArray);
+
+    USceneComponent* SceneComponent = Cast<USceneComponent>(Component);
+    if (SceneComponent)
+    {
+        ComponentObject->SetStringField(TEXT("mobility"), UnrealMCPMobilityToString(SceneComponent->Mobility));
+        ComponentObject->SetBoolField(TEXT("visible"), SceneComponent->IsVisible());
+
+        USceneComponent* AttachParent = SceneComponent->GetAttachParent();
+        ComponentObject->SetStringField(TEXT("attach_parent_name"), AttachParent ? AttachParent->GetName() : TEXT(""));
+        ComponentObject->SetStringField(TEXT("attach_parent_path"), AttachParent ? AttachParent->GetPathName() : TEXT(""));
+
+        ComponentObject->SetArrayField(TEXT("relative_location"), UnrealMCPVectorToJsonArray(SceneComponent->GetRelativeLocation()));
+        ComponentObject->SetArrayField(TEXT("relative_rotation"), UnrealMCPRotatorToJsonArray(SceneComponent->GetRelativeRotation()));
+        ComponentObject->SetArrayField(TEXT("relative_scale"), UnrealMCPVectorToJsonArray(SceneComponent->GetRelativeScale3D()));
+
+        if (bDetailed)
+        {
+            ComponentObject->SetArrayField(TEXT("world_location"), UnrealMCPVectorToJsonArray(SceneComponent->GetComponentLocation()));
+            ComponentObject->SetArrayField(TEXT("world_rotation"), UnrealMCPRotatorToJsonArray(SceneComponent->GetComponentRotation()));
+            ComponentObject->SetArrayField(TEXT("world_scale"), UnrealMCPVectorToJsonArray(SceneComponent->GetComponentScale()));
+        }
+    }
+
+    UPrimitiveComponent* PrimitiveComponent = Cast<UPrimitiveComponent>(Component);
+    if (PrimitiveComponent)
+    {
+        ComponentObject->SetNumberField(TEXT("collision_enabled"), static_cast<int32>(PrimitiveComponent->GetCollisionEnabled()));
+        ComponentObject->SetStringField(TEXT("collision_profile_name"), PrimitiveComponent->GetCollisionProfileName().ToString());
+        ComponentObject->SetBoolField(TEXT("generate_overlap_events"), PrimitiveComponent->GetGenerateOverlapEvents());
+        ComponentObject->SetBoolField(TEXT("hidden_in_game"), PrimitiveComponent->bHiddenInGame);
+        ComponentObject->SetBoolField(TEXT("cast_shadow"), PrimitiveComponent->CastShadow);
+    }
+
+    UStaticMeshComponent* StaticMeshComponent = Cast<UStaticMeshComponent>(Component);
+    if (StaticMeshComponent)
+    {
+        UStaticMesh* StaticMesh = StaticMeshComponent->GetStaticMesh();
+        ComponentObject->SetStringField(TEXT("static_mesh_name"), StaticMesh ? StaticMesh->GetName() : TEXT(""));
+        ComponentObject->SetStringField(TEXT("static_mesh_path"), StaticMesh ? StaticMesh->GetPathName() : TEXT(""));
+
+        TArray<TSharedPtr<FJsonValue>> MaterialArray;
+        const int32 MaterialCount = StaticMeshComponent->GetNumMaterials();
+        for (int32 MaterialIndex = 0; MaterialIndex < MaterialCount; ++MaterialIndex)
+        {
+            UMaterialInterface* Material = StaticMeshComponent->GetMaterial(MaterialIndex);
+            TSharedPtr<FJsonObject> MaterialObject = MakeShared<FJsonObject>();
+            MaterialObject->SetNumberField(TEXT("index"), MaterialIndex);
+            MaterialObject->SetStringField(TEXT("name"), Material ? Material->GetName() : TEXT(""));
+            MaterialObject->SetStringField(TEXT("path"), Material ? Material->GetPathName() : TEXT(""));
+            MaterialArray.Add(MakeShared<FJsonValueObject>(MaterialObject));
+        }
+        ComponentObject->SetArrayField(TEXT("materials"), MaterialArray);
+    }
+
+    ULightComponent* LightComponent = Cast<ULightComponent>(Component);
+    if (LightComponent)
+    {
+        ComponentObject->SetNumberField(TEXT("intensity"), LightComponent->Intensity);
+        ComponentObject->SetArrayField(TEXT("light_color"), UnrealMCPColorToJsonArray(LightComponent->GetLightColor()));
+    }
+
+    return MakeShared<FJsonValueObject>(ComponentObject);
 }
 
-TSharedPtr<FJsonObject> FUnrealMCPCommonUtils::ActorToJsonObject(AActor* Actor, bool bDetailed)
+/**
+ * @brief 将 Actor 转换为 JSON 值。
+ * @param [in] Actor 目标 Actor。
+ * @param [in] bIncludeComponents 是否包含组件数组。
+ * @param [in] bDetailedComponents 组件是否包含详细字段。
+ * @return TSharedPtr<FJsonValue> 序列化结果。
+ */
+TSharedPtr<FJsonValue> FUnrealMCPCommonUtils::ActorToJson(AActor* Actor, bool bIncludeComponents, bool bDetailedComponents)
+{
+    TSharedPtr<FJsonObject> ActorObject = ActorToJsonObject(Actor, false, bIncludeComponents, bDetailedComponents);
+    if (ActorObject.IsValid())
+    {
+        return MakeShared<FJsonValueObject>(ActorObject);
+    }
+
+    return MakeShared<FJsonValueNull>();
+}
+
+/**
+ * @brief 将 Actor 转换为 JSON 对象。
+ * @param [in] Actor 目标 Actor。
+ * @param [in] bDetailed 是否输出详细属性。
+ * @param [in] bIncludeComponents 是否包含组件数组。
+ * @param [in] bDetailedComponents 组件是否包含详细字段。
+ * @return TSharedPtr<FJsonObject> 序列化结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPCommonUtils::ActorToJsonObject(
+    AActor* Actor,
+    bool bDetailed,
+    bool bIncludeComponents,
+    bool bDetailedComponents)
 {
     if (!Actor)
     {
         return nullptr;
     }
-    
+
     TSharedPtr<FJsonObject> ActorObject = MakeShared<FJsonObject>();
     ActorObject->SetStringField(TEXT("name"), Actor->GetName());
     ActorObject->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
-    
-    FVector Location = Actor->GetActorLocation();
-    TArray<TSharedPtr<FJsonValue>> LocationArray;
-    LocationArray.Add(MakeShared<FJsonValueNumber>(Location.X));
-    LocationArray.Add(MakeShared<FJsonValueNumber>(Location.Y));
-    LocationArray.Add(MakeShared<FJsonValueNumber>(Location.Z));
-    ActorObject->SetArrayField(TEXT("location"), LocationArray);
-    
-    FRotator Rotation = Actor->GetActorRotation();
-    TArray<TSharedPtr<FJsonValue>> RotationArray;
-    RotationArray.Add(MakeShared<FJsonValueNumber>(Rotation.Pitch));
-    RotationArray.Add(MakeShared<FJsonValueNumber>(Rotation.Yaw));
-    RotationArray.Add(MakeShared<FJsonValueNumber>(Rotation.Roll));
-    ActorObject->SetArrayField(TEXT("rotation"), RotationArray);
-    
-    FVector Scale = Actor->GetActorScale3D();
-    TArray<TSharedPtr<FJsonValue>> ScaleArray;
-    ScaleArray.Add(MakeShared<FJsonValueNumber>(Scale.X));
-    ScaleArray.Add(MakeShared<FJsonValueNumber>(Scale.Y));
-    ScaleArray.Add(MakeShared<FJsonValueNumber>(Scale.Z));
-    ActorObject->SetArrayField(TEXT("scale"), ScaleArray);
-    
+    ActorObject->SetStringField(TEXT("path"), Actor->GetPathName());
+    ActorObject->SetArrayField(TEXT("location"), UnrealMCPVectorToJsonArray(Actor->GetActorLocation()));
+    ActorObject->SetArrayField(TEXT("rotation"), UnrealMCPRotatorToJsonArray(Actor->GetActorRotation()));
+    ActorObject->SetArrayField(TEXT("scale"), UnrealMCPVectorToJsonArray(Actor->GetActorScale3D()));
+
+    TArray<TSharedPtr<FJsonValue>> ActorTagArray;
+    for (const FName& TagName : Actor->Tags)
+    {
+        ActorTagArray.Add(MakeShared<FJsonValueString>(TagName.ToString()));
+    }
+    ActorObject->SetArrayField(TEXT("tags"), ActorTagArray);
+
+    if (Actor->GetLevel())
+    {
+        ActorObject->SetStringField(TEXT("level_path"), Actor->GetLevel()->GetPathName());
+    }
+
+#if WITH_EDITOR
+    ActorObject->SetStringField(TEXT("label"), Actor->GetActorLabel());
+    ActorObject->SetStringField(TEXT("folder_path"), Actor->GetFolderPath().ToString());
+#endif
+
+    if (bDetailed)
+    {
+        ActorObject->SetBoolField(TEXT("hidden"), Actor->IsHidden());
+        ActorObject->SetBoolField(TEXT("tick_enabled"), Actor->IsActorTickEnabled());
+    }
+
+    if (bIncludeComponents)
+    {
+        TArray<UActorComponent*> ActorComponents;
+        Actor->GetComponents(ActorComponents);
+
+        TArray<TSharedPtr<FJsonValue>> ComponentArray;
+        for (UActorComponent* ActorComponent : ActorComponents)
+        {
+            ComponentArray.Add(ComponentToJson(ActorComponent, bDetailedComponents));
+        }
+
+        ActorObject->SetArrayField(TEXT("components"), ComponentArray);
+        ActorObject->SetNumberField(TEXT("component_count"), ComponentArray.Num());
+    }
+
     return ActorObject;
 }
 
+/**
+ * @brief 在事件图中查找已存在事件节点。
+ * @param [in] Graph 目标图。
+ * @param [in] EventName 事件名。
+ * @return UK2Node_Event* 查找结果。
+ */
 UK2Node_Event* FUnrealMCPCommonUtils::FindExistingEventNode(UEdGraph* Graph, const FString& EventName)
 {
     if (!Graph)
@@ -509,8 +811,16 @@ UK2Node_Event* FUnrealMCPCommonUtils::FindExistingEventNode(UEdGraph* Graph, con
     return nullptr;
 }
 
+/**
+ * @brief 通过反射设置对象属性值。
+ * @param [in] Object 目标对象。
+ * @param [in] PropertyName 属性名称。
+ * @param [in] Value JSON 值。
+ * @param [out] OutErrorMessage 失败时输出错误信息。
+ * @return bool 是否设置成功。
+ */
 bool FUnrealMCPCommonUtils::SetObjectProperty(UObject* Object, const FString& PropertyName, 
-                                     const TSharedPtr<FJsonValue>& Value, FString& OutErrorMessage)
+                                             const TSharedPtr<FJsonValue>& Value, FString& OutErrorMessage)
 {
     if (!Object)
     {

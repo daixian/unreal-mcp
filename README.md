@@ -1,6 +1,6 @@
 <div align="center">
 
-# Model Context Protocol for Unreal Engine
+# Unreal Engine 的 Model Context Protocol
 <span style="color: #555555">unreal-mcp</span>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -10,110 +10,110 @@
 
 </div>
 
-This project enables AI assistant clients like Cursor, Windsurf and Claude Desktop to control Unreal Engine through natural language using the Model Context Protocol (MCP).
+本项目通过 Model Context Protocol（MCP），让 Cursor、Windsurf、Claude Desktop 等 AI 助手客户端可以使用自然语言控制 Unreal Engine。
 
-## ⚠️ Experimental Status
+## ⚠️ 实验状态
 
-This project is currently in an **EXPERIMENTAL** state. The API, functionality, and implementation details are subject to significant changes. While we encourage testing and feedback, please be aware that:
+本项目当前处于**实验阶段（EXPERIMENTAL）**。API、功能和实现细节都可能发生较大变化。欢迎测试与反馈，但请注意：
 
-- Breaking changes may occur without notice
-- Features may be incomplete or unstable
-- Documentation may be outdated or missing
-- Production use is not recommended at this time
+- 可能在无通知的情况下出现破坏性变更
+- 功能可能不完整或不稳定
+- 文档可能过时或缺失
+- 当前不建议用于生产环境
 
-## 🌟 Overview
+## 🌟 概览
 
-The Unreal MCP integration provides comprehensive tools for controlling Unreal Engine through natural language:
+Unreal MCP 集成提供了通过自然语言控制 Unreal Engine 的完整工具能力：
 
-| Category | Capabilities |
+| 类别 | 能力 |
 |----------|-------------|
-| **Actor Management** | • Create and delete actors (cubes, spheres, lights, cameras, etc.)<br>• Set actor transforms (position, rotation, scale)<br>• Query actor properties and find actors by name<br>• List all actors in the current level |
-| **Blueprint Development** | • Create new Blueprint classes with custom components<br>• Add and configure components (mesh, camera, light, etc.)<br>• Set component properties and physics settings<br>• Compile Blueprints and spawn Blueprint actors<br>• Create input mappings for player controls |
-| **Blueprint Node Graph** | • Add event nodes (BeginPlay, Tick, etc.)<br>• Create function call nodes and connect them<br>• Add variables with custom types and default values<br>• Create component and self references<br>• Find and manage nodes in the graph |
-| **Editor Control** | • Focus viewport on specific actors or locations<br>• Control viewport camera orientation and distance |
+| **Actor 管理** | • 创建和删除 Actor（立方体、球体、灯光、相机等）<br>• 设置 Actor 变换（位置、旋转、缩放）<br>• 查询 Actor 属性并按名称查找 Actor<br>• 列出当前关卡中的全部 Actor |
+| **Blueprint 开发** | • 创建带自定义组件的新 Blueprint 类<br>• 添加并配置组件（网格体、相机、灯光等）<br>• 设置组件属性和物理参数<br>• 编译 Blueprint 并生成 Blueprint Actor<br>• 创建玩家控制输入映射 |
+| **Blueprint 节点图** | • 添加事件节点（BeginPlay、Tick 等）<br>• 创建函数调用节点并连接<br>• 添加自定义类型变量和默认值<br>• 创建组件引用和 Self 引用<br>• 查找并管理图中的节点 |
+| **编辑器控制** | • 将视口聚焦到指定 Actor 或位置<br>• 控制视口相机朝向与距离 |
 
-All these capabilities are accessible through natural language commands via AI assistants, making it easy to automate and control Unreal Engine workflows.
+以上能力都可以通过 AI 助手的自然语言指令调用，便于自动化 Unreal Engine 工作流。
 
-## 🧩 Components
+## 🧩 组件
 
-### Sample Project (MCPGameProject) `MCPGameProject`
-- Based off the Blank Project, but with the UnrealMCP plugin added.
+### 示例项目（MCPGameProject）`MCPGameProject`
+- 基于 Blank 项目，并已添加 UnrealMCP 插件。
 
-### Plugin (UnrealMCP) `MCPGameProject/Plugins/UnrealMCP`
-- Native TCP server for MCP communication
-- Integrates with Unreal Editor subsystems
-- Implements actor manipulation tools
-- Handles command execution and response handling
+### 插件（UnrealMCP）`MCPGameProject/Plugins/UnrealMCP`
+- 用于 MCP 通信的原生 TCP 服务器
+- 集成 Unreal Editor 子系统
+- 实现 Actor 操作工具
+- 处理命令执行与响应返回
 
-### Python MCP Server `Python/unreal_mcp_server.py`
-- Implemented in `unreal_mcp_server.py`
-- Manages TCP socket connections to the C++ plugin (port 55557)
-- Handles command serialization and response parsing
-- Provides error handling and connection management
-- Loads and registers tool modules from the `tools` directory
-- Uses the FastMCP library to implement the Model Context Protocol
+### Python MCP 服务器 `Python/unreal_mcp_server.py`
+- 实现在 `unreal_mcp_server.py`
+- 管理到 C++ 插件的 TCP Socket 连接（端口 55557）
+- 处理命令序列化与响应解析
+- 提供错误处理与连接管理
+- 从 `tools` 目录加载并注册工具模块
+- 使用 FastMCP 库实现 Model Context Protocol
 
-## 📂 Directory Structure
+## 📂 目录结构
 
-- **MCPGameProject/** - Example Unreal project
-  - **Plugins/UnrealMCP/** - C++ plugin source
-    - **Source/UnrealMCP/** - Plugin source code
-    - **UnrealMCP.uplugin** - Plugin definition
+- **MCPGameProject/** - Unreal 示例项目
+  - **Plugins/UnrealMCP/** - C++ 插件源码
+    - **Source/UnrealMCP/** - 插件源代码
+    - **UnrealMCP.uplugin** - 插件定义文件
 
-- **Python/** - Python server and tools
-  - **tools/** - Tool modules for actor, editor, and blueprint operations
-  - **scripts/** - Example scripts and demos
+- **Python/** - Python 服务器与工具
+  - **tools/** - Actor、编辑器、Blueprint 操作工具模块
+  - **scripts/** - 示例脚本与演示
 
-- **Docs/** - Comprehensive documentation
-  - See [Docs/README.md](Docs/README.md) for documentation index
+- **Docs/** - 完整文档
+  - 参见 [Docs/README.md](Docs/README.md) 获取文档索引
 
-## 🚀 Quick Start Guide
+## 🚀 快速开始
 
-### Prerequisites
+### 前置条件
 - Unreal Engine 5.5+
 - Python 3.12+
-- MCP Client (e.g., Claude Desktop, Cursor, Windsurf)
+- MCP 客户端（如 Claude Desktop、Cursor、Windsurf）
 
-### Sample project
+### 示例项目
 
-For getting started quickly, feel free to use the starter project in `MCPGameProject`. This is a UE 5.5 Blank Starter Project with the `UnrealMCP.uplugin` already configured. 
+为快速上手，你可以直接使用 `MCPGameProject` 中的启动项目。它是一个 UE 5.5 Blank Starter Project，并已配置好 `UnrealMCP.uplugin`。
 
-1. **Prepare the project**
-   - Right-click your .uproject file
-   - Generate Visual Studio project files
-2. **Build the project (including the plugin)**
-   - Open solution (`.sln`)
-   - Choose `Development Editor` as your target.
-   - Build
+1. **准备项目**
+   - 右键你的 `.uproject` 文件
+   - 生成 Visual Studio 项目文件
+2. **构建项目（包含插件）**
+   - 打开解决方案（`.sln`）
+   - 目标选择 `Development Editor`
+   - 执行 Build
 
-### Plugin
-Otherwise, if you want to use the plugin in your existing project:
+### 插件
+如果你希望在自己的现有项目中使用该插件：
 
-1. **Copy the plugin to your project**
-   - Copy `MCPGameProject/Plugins/UnrealMCP` to your project's Plugins folder
+1. **复制插件到你的项目**
+   - 将 `MCPGameProject/Plugins/UnrealMCP` 复制到你的项目 `Plugins` 文件夹
 
-2. **Enable the plugin**
-   - Edit > Plugins
-   - Find "UnrealMCP" in Editor category
-   - Enable the plugin
-   - Restart editor when prompted
+2. **启用插件**
+   - 打开 Edit > Plugins
+   - 在 Editor 分类找到 “UnrealMCP”
+   - 启用插件
+   - 按提示重启编辑器
 
-3. **Build the plugin**
-   - Right-click your .uproject file
-   - Generate Visual Studio project files
-   - Open solution (`.sln)
-   - Build with your target platform and output settings
+3. **构建插件**
+   - 右键 `.uproject` 文件
+   - 生成 Visual Studio 项目文件
+   - 打开解决方案（`.sln`）
+   - 按你的目标平台和输出设置进行构建
 
-### Python Server Setup
+### Python 服务器设置
 
-See [Python/README.md](Python/README.md) for detailed Python setup instructions, including:
-- Setting up your Python environment
-- Running the MCP server
-- Using direct or server-based connections
+详细 Python 配置见 [Python/README.md](Python/README.md)，包括：
+- Python 环境配置
+- 运行 MCP 服务器
+- 使用直连或服务器模式连接
 
-### Configuring your MCP Client
+### 配置 MCP 客户端
 
-Use the following JSON for your mcp configuration based on your MCP client.
+根据你的 MCP 客户端，使用如下 `mcp` 配置 JSON：
 
 ```json
 {
@@ -131,25 +131,25 @@ Use the following JSON for your mcp configuration based on your MCP client.
 }
 ```
 
-An example is found in `mcp.json`
+可参考仓库中的 `mcp.json` 示例。
 
-### MCP Configuration Locations
+### MCP 配置文件位置
 
-Depending on which MCP client you're using, the configuration file location will differ:
+不同 MCP 客户端的配置文件位置如下：
 
-| MCP Client | Configuration File Location | Notes |
+| MCP 客户端 | 配置文件位置 | 说明 |
 |------------|------------------------------|-------|
-| Claude Desktop | `~/.config/claude-desktop/mcp.json` | On Windows: `%USERPROFILE%\.config\claude-desktop\mcp.json` |
-| Cursor | `.cursor/mcp.json` | Located in your project root directory |
-| Windsurf | `~/.config/windsurf/mcp.json` | On Windows: `%USERPROFILE%\.config\windsurf\mcp.json` |
+| Claude Desktop | `~/.config/claude-desktop/mcp.json` | Windows: `%USERPROFILE%\.config\claude-desktop\mcp.json` |
+| Cursor | `.cursor/mcp.json` | 位于项目根目录 |
+| Windsurf | `~/.config/windsurf/mcp.json` | Windows: `%USERPROFILE%\.config\windsurf\mcp.json` |
 
-Each client uses the same JSON format as shown in the example above. 
-Simply place the configuration in the appropriate location for your MCP client.
+各客户端使用相同的 JSON 格式。
+将配置放到对应位置即可。
 
 
 ## License
 MIT
 
-## Questions
+## 问题反馈
 
-For questions, you can reach me on X/Twitter: [@chongdashu](https://www.x.com/chongdashu)
+如有问题，可以在 X/Twitter 联系我：[@chongdashu](https://www.x.com/chongdashu)

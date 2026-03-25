@@ -4,79 +4,65 @@
 #include "Json.h"
 
 /**
- * Handles UMG (Widget Blueprint) related MCP commands
- * Responsible for creating and modifying UMG Widget Blueprints,
- * adding widget components, and managing widget instances in the viewport.
+ * @brief 处理 UMG（Widget Blueprint）相关 MCP 命令。
+ * @note 负责创建/修改 Widget Blueprint、添加控件以及管理视口中的 Widget 实例。
  */
 class UNREALMCP_API FUnrealMCPUMGCommands
 {
 public:
+    /**
+     * @brief 构造函数。
+     */
     FUnrealMCPUMGCommands();
 
     /**
-     * Handle UMG-related commands
-     * @param CommandType - The type of command to handle
-     * @param Params - JSON parameters for the command
-     * @return JSON response with results or error
+     * @brief 分发并执行 UMG 相关命令。
+     * @param [in] CommandType 命令类型字符串。
+     * @param [in] Params 命令参数 JSON 对象。
+     * @return TSharedPtr<FJsonObject> 执行结果或错误信息。
      */
     TSharedPtr<FJsonObject> HandleCommand(const FString& CommandType, const TSharedPtr<FJsonObject>& Params);
 
 private:
     /**
-     * Create a new UMG Widget Blueprint
-     * @param Params - Must include "name" for the blueprint name
-     * @return JSON response with the created blueprint details
+     * @brief 创建 UMG Widget Blueprint。
+     * @param [in] Params 需包含目标 Widget 的创建参数。
+     * @return TSharedPtr<FJsonObject> 创建结果。
      */
     TSharedPtr<FJsonObject> HandleCreateUMGWidgetBlueprint(const TSharedPtr<FJsonObject>& Params);
 
     /**
-     * Add a Text Block widget to a UMG Widget Blueprint
-     * @param Params - Must include:
-     *                "blueprint_name" - Name of the target Widget Blueprint
-     *                "widget_name" - Name for the new Text Block
-     *                "text" - Initial text content (optional)
-     *                "position" - [X, Y] position in the canvas (optional)
-     * @return JSON response with the added widget details
+     * @brief 向 UMG Widget Blueprint 添加 Text Block 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
      */
     TSharedPtr<FJsonObject> HandleAddTextBlockToWidget(const TSharedPtr<FJsonObject>& Params);
 
     /**
-     * Add a widget instance to the game viewport
-     * @param Params - Must include:
-     *                "blueprint_name" - Name of the Widget Blueprint to instantiate
-     *                "z_order" - Z-order for widget display (optional)
-     * @return JSON response with the widget instance details
+     * @brief 将 Widget 实例添加到游戏视口。
+     * @param [in] Params 需包含蓝图名以及可选 ZOrder。
+     * @return TSharedPtr<FJsonObject> 添加结果。
      */
     TSharedPtr<FJsonObject> HandleAddWidgetToViewport(const TSharedPtr<FJsonObject>& Params);
 
     /**
-     * Add a Button widget to a UMG Widget Blueprint
-     * @param Params - Must include:
-     *                "blueprint_name" - Name of the target Widget Blueprint
-     *                "widget_name" - Name for the new Button
-     *                "text" - Button text
-     *                "position" - [X, Y] position in the canvas
-     * @return JSON response with the added widget details
+     * @brief 向 UMG Widget Blueprint 添加 Button 控件。
+     * @param [in] Params 需包含蓝图名、按钮名、文本与布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
      */
     TSharedPtr<FJsonObject> HandleAddButtonToWidget(const TSharedPtr<FJsonObject>& Params);
 
     /**
-     * Bind an event to a widget (e.g. button click)
-     * @param Params - Must include:
-     *                "blueprint_name" - Name of the target Widget Blueprint
-     *                "widget_name" - Name of the widget to bind
-     *                "event_name" - Name of the event to bind
-     * @return JSON response with the binding details
+     * @brief 为控件绑定事件（如按钮点击）。
+     * @param [in] Params 需包含蓝图名、控件名和事件名。
+     * @return TSharedPtr<FJsonObject> 绑定结果。
      */
     TSharedPtr<FJsonObject> HandleBindWidgetEvent(const TSharedPtr<FJsonObject>& Params);
 
     /**
-     * Set up text block binding for dynamic updates
-     * @param Params - Must include:
-     *                "blueprint_name" - Name of the target Widget Blueprint
-     *                "widget_name" - Name of the widget to bind
-     *                "binding_name" - Name of the binding to set up
-     * @return JSON response with the binding details
+     * @brief 配置 Text Block 的数据绑定，用于动态文本更新。
+     * @param [in] Params 需包含蓝图名、控件名和绑定配置。
+     * @return TSharedPtr<FJsonObject> 绑定配置结果。
      */
     TSharedPtr<FJsonObject> HandleSetTextBlockBinding(const TSharedPtr<FJsonObject>& Params);
-}; 
+};

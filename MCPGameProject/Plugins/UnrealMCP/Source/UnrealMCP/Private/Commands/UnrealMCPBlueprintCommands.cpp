@@ -1,3 +1,7 @@
+/**
+ * @file UnrealMCPBlueprintCommands.cpp
+ * @brief Blueprint 资产与组件命令处理实现。
+ */
 #include "Commands/UnrealMCPBlueprintCommands.h"
 #include "Commands/UnrealMCPCommonUtils.h"
 #include "Engine/Blueprint.h"
@@ -23,10 +27,19 @@
 #include "GameFramework/GameModeBase.h"
 #include "UObject/UObjectGlobals.h"
 
+/**
+ * @brief 构造函数。
+ */
 FUnrealMCPBlueprintCommands::FUnrealMCPBlueprintCommands()
 {
 }
 
+/**
+ * @brief 分发 Blueprint 相关命令。
+ * @param [in] CommandType 命令类型。
+ * @param [in] Params 命令参数。
+ * @return TSharedPtr<FJsonObject> 执行结果或错误信息。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCommand(const FString& CommandType, const TSharedPtr<FJsonObject>& Params)
 {
     if (CommandType == TEXT("create_blueprint"))
@@ -73,6 +86,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCommand(const FString
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown blueprint command: %s"), *CommandType));
 }
 
+/**
+ * @brief 创建 Blueprint 资产。
+ * @param [in] Params 创建参数。
+ * @return TSharedPtr<FJsonObject> 创建结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCreateBlueprint(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters
@@ -195,6 +213,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCreateBlueprint(const
     return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to create blueprint"));
 }
 
+/**
+ * @brief 向 Blueprint 添加组件。
+ * @param [in] Params 组件参数。
+ * @return TSharedPtr<FJsonObject> 添加结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleAddComponentToBlueprint(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters
@@ -319,6 +342,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleAddComponentToBluepri
     return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to add component to blueprint"));
 }
 
+/**
+ * @brief 设置 Blueprint 组件属性。
+ * @param [in] Params 属性参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetComponentProperty(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters
@@ -808,6 +836,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetComponentProperty(
     return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'property_value' parameter"));
 }
 
+/**
+ * @brief 设置组件物理参数。
+ * @param [in] Params 物理参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPhysicsProperties(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters
@@ -884,6 +917,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPhysicsProperties(
     return ResultObj;
 }
 
+/**
+ * @brief 编译 Blueprint。
+ * @param [in] Params 编译参数。
+ * @return TSharedPtr<FJsonObject> 编译结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCompileBlueprint(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters
@@ -909,6 +947,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCompileBlueprint(cons
     return ResultObj;
 }
 
+/**
+ * @brief 生成 Blueprint Actor。
+ * @param [in] Params 生成参数。
+ * @return TSharedPtr<FJsonObject> 生成结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSpawnBlueprintActor(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters
@@ -965,6 +1008,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSpawnBlueprintActor(c
     return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to spawn blueprint actor"));
 }
 
+/**
+ * @brief 设置 Blueprint 默认对象属性。
+ * @param [in] Params 属性设置参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetBlueprintProperty(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters
@@ -1019,6 +1067,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetBlueprintProperty(
     return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'property_value' parameter"));
 }
 
+/**
+ * @brief 设置静态网格组件资源与参数。
+ * @param [in] Params 静态网格参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetStaticMeshProperties(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters
@@ -1092,6 +1145,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetStaticMeshProperti
     return ResultObj;
 }
 
+/**
+ * @brief 设置 Pawn 常用属性。
+ * @param [in] Params Pawn 属性参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPawnProperties(const TSharedPtr<FJsonObject>& Params)
 {
     // Get required parameters
@@ -1218,6 +1276,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPawnProperties(con
     return ResponseObj;
 }
 
+/**
+ * @brief 设置 GameMode 的默认 Pawn。
+ * @param [in] Params GameMode 配置参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetGameModeDefaultPawn(const TSharedPtr<FJsonObject>& Params)
 {
     FString GameModeName;
