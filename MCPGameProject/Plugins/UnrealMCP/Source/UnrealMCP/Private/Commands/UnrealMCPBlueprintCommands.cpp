@@ -20,6 +20,8 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/GameModeBase.h"
+#include "UObject/UObjectGlobals.h"
 
 FUnrealMCPBlueprintCommands::FUnrealMCPBlueprintCommands()
 {
@@ -63,6 +65,10 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCommand(const FString
     {
         return HandleSetPawnProperties(Params);
     }
+    else if (CommandType == TEXT("set_game_mode_default_pawn"))
+    {
+        return HandleSetGameModeDefaultPawn(Params);
+    }
     
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown blueprint command: %s"), *CommandType));
 }
@@ -76,10 +82,24 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCreateBlueprint(const
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
     }
 
+    FString PackagePath = TEXT("/Game/Blueprints");
+    Params->TryGetStringField(TEXT("path"), PackagePath);
+    if (!PackagePath.StartsWith(TEXT("/Game")))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("'path' must start with /Game"));
+    }
+    if (PackagePath.EndsWith(TEXT("/")))
+    {
+        PackagePath.LeftChopInline(1);
+    }
+
+    // Ensure parent folder exists
+    UEditorAssetLibrary::MakeDirectory(PackagePath);
+
     // Check if blueprint already exists
-    FString PackagePath = TEXT("/Game/Blueprints/");
     FString AssetName = BlueprintName;
-    if (UEditorAssetLibrary::DoesAssetExist(PackagePath + AssetName))
+    const FString AssetPath = PackagePath + TEXT("/") + AssetName;
+    if (UEditorAssetLibrary::DoesAssetExist(AssetPath))
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint already exists: %s"), *BlueprintName));
     }
@@ -97,52 +117,65 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCreateBlueprint(const
     // Try to find the specified parent class
     if (!ParentClass.IsEmpty())
     {
-        FString ClassName = ParentClass;
-        if (!ClassName.StartsWith(TEXT("A")))
-        {
-            ClassName = TEXT("A") + ClassName;
-        }
-        
-        // First try direct StaticClass lookup for common classes
         UClass* FoundClass = nullptr;
-        if (ClassName == TEXT("APawn"))
+        TArray<FString> ClassCandidates;
+        ClassCandidates.Add(ParentClass);
+
+        if (ParentClass.StartsWith(TEXT("A")) || ParentClass.StartsWith(TEXT("U")))
         {
-            FoundClass = APawn::StaticClass();
-        }
-        else if (ClassName == TEXT("AActor"))
-        {
-            FoundClass = AActor::StaticClass();
+            ClassCandidates.Add(ParentClass.RightChop(1));
         }
         else
         {
-            // Try loading the class using LoadClass which is more reliable than FindObject
-            const FString ClassPath = FString::Printf(TEXT("/Script/Engine.%s"), *ClassName);
-            FoundClass = LoadClass<AActor>(nullptr, *ClassPath);
-            
-            if (!FoundClass)
+            ClassCandidates.Add(TEXT("A") + ParentClass);
+            ClassCandidates.Add(TEXT("U") + ParentClass);
+        }
+
+        for (const FString& Candidate : ClassCandidates)
+        {
+            if (FoundClass)
             {
-                // Try alternate paths if not found
-                const FString GameClassPath = FString::Printf(TEXT("/Script/Game.%s"), *ClassName);
-                FoundClass = LoadClass<AActor>(nullptr, *GameClassPath);
+                break;
             }
+
+            FoundClass = FindFirstObject<UClass>(*Candidate, EFindFirstObjectOptions::None);
+            if (FoundClass)
+            {
+                break;
+            }
+
+            FString ClassBaseName = Candidate;
+            if (ClassBaseName.StartsWith(TEXT("A")) || ClassBaseName.StartsWith(TEXT("U")))
+            {
+                ClassBaseName = ClassBaseName.RightChop(1);
+            }
+
+            const FString EngineClassPath = FString::Printf(TEXT("/Script/Engine.%s"), *ClassBaseName);
+            FoundClass = LoadObject<UClass>(nullptr, *EngineClassPath);
+            if (FoundClass)
+            {
+                break;
+            }
+
+            const FString ProjectClassPath = FString::Printf(TEXT("/Script/xrtest.%s"), *ClassBaseName);
+            FoundClass = LoadObject<UClass>(nullptr, *ProjectClassPath);
         }
 
         if (FoundClass)
         {
             SelectedParentClass = FoundClass;
-            UE_LOG(LogTemp, Log, TEXT("Successfully set parent class to '%s'"), *ClassName);
+            UE_LOG(LogTemp, Log, TEXT("Successfully set parent class to '%s'"), *FoundClass->GetName());
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("Could not find specified parent class '%s' at paths: /Script/Engine.%s or /Script/Game.%s, defaulting to AActor"), 
-                *ClassName, *ClassName, *ClassName);
+            UE_LOG(LogTemp, Warning, TEXT("Could not find specified parent class '%s', defaulting to AActor"), *ParentClass);
         }
     }
     
     Factory->ParentClass = SelectedParentClass;
 
     // Create the blueprint
-    UPackage* Package = CreatePackage(*(PackagePath + AssetName));
+    UPackage* Package = CreatePackage(*AssetPath);
     UBlueprint* NewBlueprint = Cast<UBlueprint>(Factory->FactoryCreateNew(UBlueprint::StaticClass(), Package, *AssetName, RF_Standalone | RF_Public, nullptr, GWarn));
 
     if (NewBlueprint)
@@ -155,7 +188,7 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCreateBlueprint(const
 
         TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
         ResultObj->SetStringField(TEXT("name"), AssetName);
-        ResultObj->SetStringField(TEXT("path"), PackagePath + AssetName);
+        ResultObj->SetStringField(TEXT("path"), AssetPath);
         return ResultObj;
     }
 
@@ -194,26 +227,26 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleAddComponentToBluepri
     UClass* ComponentClass = nullptr;
 
     // Try to find the class with exact name first
-    ComponentClass = FindObject<UClass>(ANY_PACKAGE, *ComponentType);
+    ComponentClass = FindFirstObject<UClass>(*ComponentType, EFindFirstObjectOptions::None);
     
     // If not found, try with "Component" suffix
     if (!ComponentClass && !ComponentType.EndsWith(TEXT("Component")))
     {
         FString ComponentTypeWithSuffix = ComponentType + TEXT("Component");
-        ComponentClass = FindObject<UClass>(ANY_PACKAGE, *ComponentTypeWithSuffix);
+        ComponentClass = FindFirstObject<UClass>(*ComponentTypeWithSuffix, EFindFirstObjectOptions::None);
     }
     
     // If still not found, try with "U" prefix
     if (!ComponentClass && !ComponentType.StartsWith(TEXT("U")))
     {
         FString ComponentTypeWithPrefix = TEXT("U") + ComponentType;
-        ComponentClass = FindObject<UClass>(ANY_PACKAGE, *ComponentTypeWithPrefix);
+        ComponentClass = FindFirstObject<UClass>(*ComponentTypeWithPrefix, EFindFirstObjectOptions::None);
         
         // Try with both prefix and suffix
         if (!ComponentClass && !ComponentType.EndsWith(TEXT("Component")))
         {
             FString ComponentTypeWithBoth = TEXT("U") + ComponentType + TEXT("Component");
-            ComponentClass = FindObject<UClass>(ANY_PACKAGE, *ComponentTypeWithBoth);
+            ComponentClass = FindFirstObject<UClass>(*ComponentTypeWithBoth, EFindFirstObjectOptions::None);
         }
     }
     
@@ -222,6 +255,9 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleAddComponentToBluepri
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown component type: %s"), *ComponentType));
     }
+
+    FString ParentName;
+    Params->TryGetStringField(TEXT("parent_name"), ParentName);
 
     // Add the component to the blueprint
     USCS_Node* NewNode = Blueprint->SimpleConstructionScript->CreateNode(ComponentClass, *ComponentName);
@@ -245,8 +281,31 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleAddComponentToBluepri
             }
         }
 
-        // Add to root if no parent specified
-        Blueprint->SimpleConstructionScript->AddNode(NewNode);
+        // Add to root or attach to requested parent component
+        if (ParentName.IsEmpty())
+        {
+            Blueprint->SimpleConstructionScript->AddNode(NewNode);
+        }
+        else
+        {
+            USCS_Node* ParentNode = nullptr;
+            for (USCS_Node* ExistingNode : Blueprint->SimpleConstructionScript->GetAllNodes())
+            {
+                if (ExistingNode && ExistingNode->GetVariableName().ToString() == ParentName)
+                {
+                    ParentNode = ExistingNode;
+                    break;
+                }
+            }
+
+            if (!ParentNode)
+            {
+                return FUnrealMCPCommonUtils::CreateErrorResponse(
+                    FString::Printf(TEXT("Parent component not found: %s"), *ParentName));
+            }
+
+            ParentNode->AddChildNode(NewNode);
+        }
 
         // Compile the blueprint
         FKismetEditorUtilities::CompileBlueprint(Blueprint);
@@ -1157,4 +1216,50 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPawnProperties(con
     ResponseObj->SetBoolField(TEXT("success"), bAnyPropertiesSet);
     ResponseObj->SetObjectField(TEXT("results"), ResultsObj);
     return ResponseObj;
-} 
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetGameModeDefaultPawn(const TSharedPtr<FJsonObject>& Params)
+{
+    FString GameModeName;
+    if (!Params->TryGetStringField(TEXT("game_mode_name"), GameModeName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'game_mode_name' parameter"));
+    }
+
+    FString PawnBlueprintName;
+    if (!Params->TryGetStringField(TEXT("pawn_blueprint_name"), PawnBlueprintName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'pawn_blueprint_name' parameter"));
+    }
+
+    UBlueprint* GameModeBlueprint = FUnrealMCPCommonUtils::FindBlueprint(GameModeName);
+    if (!GameModeBlueprint || !GameModeBlueprint->GeneratedClass)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("GameMode blueprint not found: %s"), *GameModeName));
+    }
+
+    UBlueprint* PawnBlueprint = FUnrealMCPCommonUtils::FindBlueprint(PawnBlueprintName);
+    if (!PawnBlueprint || !PawnBlueprint->GeneratedClass)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Pawn blueprint not found: %s"), *PawnBlueprintName));
+    }
+
+    AGameModeBase* GameModeCDO = Cast<AGameModeBase>(GameModeBlueprint->GeneratedClass->GetDefaultObject());
+    if (!GameModeCDO)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Target blueprint is not a GameModeBase"));
+    }
+
+    GameModeCDO->DefaultPawnClass = PawnBlueprint->GeneratedClass;
+
+    FBlueprintEditorUtils::MarkBlueprintAsModified(GameModeBlueprint);
+    FKismetEditorUtilities::CompileBlueprint(GameModeBlueprint);
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    ResultObj->SetStringField(TEXT("game_mode"), GameModeName);
+    ResultObj->SetStringField(TEXT("default_pawn"), PawnBlueprintName);
+    return ResultObj;
+}

@@ -553,6 +553,11 @@ bool FUnrealMCPCommonUtils::SetObjectProperty(UObject* Object, const FString& Pr
         ((FStrProperty*)Property)->SetPropertyValue(PropertyAddr, Value->AsString());
         return true;
     }
+    else if (Property->IsA<FNameProperty>())
+    {
+        ((FNameProperty*)Property)->SetPropertyValue(PropertyAddr, FName(*Value->AsString()));
+        return true;
+    }
     else if (Property->IsA<FByteProperty>())
     {
         FByteProperty* ByteProp = CastField<FByteProperty>(Property);

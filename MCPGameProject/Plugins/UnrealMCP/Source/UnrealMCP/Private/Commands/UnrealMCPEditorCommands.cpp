@@ -15,11 +15,14 @@
 #include "Engine/PointLight.h"
 #include "Engine/SpotLight.h"
 #include "Camera/CameraActor.h"
+#include "Engine/StaticMesh.h"
 #include "Components/StaticMeshComponent.h"
 #include "EditorSubsystem.h"
 #include "Subsystems/EditorActorSubsystem.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "EditorAssetLibrary.h"
+#include "EditorLevelLibrary.h"
 
 FUnrealMCPEditorCommands::FUnrealMCPEditorCommands()
 {
@@ -27,6 +30,24 @@ FUnrealMCPEditorCommands::FUnrealMCPEditorCommands()
 
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& CommandType, const TSharedPtr<FJsonObject>& Params)
 {
+    // Content and level management commands
+    if (CommandType == TEXT("make_directory"))
+    {
+        return HandleMakeDirectory(Params);
+    }
+    else if (CommandType == TEXT("duplicate_asset"))
+    {
+        return HandleDuplicateAsset(Params);
+    }
+    else if (CommandType == TEXT("load_level"))
+    {
+        return HandleLoadLevel(Params);
+    }
+    else if (CommandType == TEXT("save_current_level"))
+    {
+        return HandleSaveCurrentLevel(Params);
+    }
+
     // Actor manipulation commands
     if (CommandType == TEXT("get_actors_in_level"))
     {
@@ -76,6 +97,123 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     }
     
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown editor command: %s"), *CommandType));
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleMakeDirectory(const TSharedPtr<FJsonObject>& Params)
+{
+    FString DirectoryPath;
+    if (!Params->TryGetStringField(TEXT("directory_path"), DirectoryPath))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'directory_path' parameter"));
+    }
+
+    if (!DirectoryPath.StartsWith(TEXT("/Game")))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("'directory_path' must start with /Game"));
+    }
+
+    const bool bOk = UEditorAssetLibrary::MakeDirectory(DirectoryPath);
+    if (!bOk)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Failed to create directory: %s"), *DirectoryPath));
+    }
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    ResultObj->SetStringField(TEXT("directory_path"), DirectoryPath);
+    return ResultObj;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDuplicateAsset(const TSharedPtr<FJsonObject>& Params)
+{
+    FString SourceAssetPath;
+    FString DestinationAssetPath;
+    bool bOverwrite = false;
+
+    if (!Params->TryGetStringField(TEXT("source_asset_path"), SourceAssetPath))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'source_asset_path' parameter"));
+    }
+    if (!Params->TryGetStringField(TEXT("destination_asset_path"), DestinationAssetPath))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'destination_asset_path' parameter"));
+    }
+    Params->TryGetBoolField(TEXT("overwrite"), bOverwrite);
+
+    if (!UEditorAssetLibrary::DoesAssetExist(SourceAssetPath))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Source asset does not exist: %s"), *SourceAssetPath));
+    }
+
+    if (UEditorAssetLibrary::DoesAssetExist(DestinationAssetPath))
+    {
+        if (!bOverwrite)
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(
+                FString::Printf(TEXT("Destination asset already exists: %s"), *DestinationAssetPath));
+        }
+
+        if (!UEditorAssetLibrary::DeleteAsset(DestinationAssetPath))
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(
+                FString::Printf(TEXT("Failed to remove existing destination asset: %s"), *DestinationAssetPath));
+        }
+    }
+
+    UObject* DuplicatedAsset = UEditorAssetLibrary::DuplicateAsset(SourceAssetPath, DestinationAssetPath);
+    if (DuplicatedAsset == nullptr)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Failed to duplicate asset from %s to %s"), *SourceAssetPath, *DestinationAssetPath));
+    }
+
+    UEditorAssetLibrary::SaveAsset(DestinationAssetPath, false);
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    ResultObj->SetStringField(TEXT("source_asset_path"), SourceAssetPath);
+    ResultObj->SetStringField(TEXT("destination_asset_path"), DestinationAssetPath);
+    return ResultObj;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleLoadLevel(const TSharedPtr<FJsonObject>& Params)
+{
+    FString LevelPath;
+    if (!Params->TryGetStringField(TEXT("level_path"), LevelPath))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'level_path' parameter"));
+    }
+
+    const bool bOk = UEditorLevelLibrary::LoadLevel(LevelPath);
+    if (!bOk)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Failed to load level: %s"), *LevelPath));
+    }
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    ResultObj->SetStringField(TEXT("level_path"), LevelPath);
+    return ResultObj;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSaveCurrentLevel(const TSharedPtr<FJsonObject>& Params)
+{
+    const bool bOk = UEditorLevelLibrary::SaveCurrentLevel();
+    if (!bOk)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to save current level"));
+    }
+
+    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+    const FString CurrentLevel = World ? World->GetOutermost()->GetName() : TEXT("");
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    ResultObj->SetStringField(TEXT("level_path"), CurrentLevel);
+    return ResultObj;
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorsInLevel(const TSharedPtr<FJsonObject>& Params)
@@ -184,6 +322,24 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnActor(const TShared
     if (ActorType == TEXT("StaticMeshActor"))
     {
         NewActor = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), Location, Rotation, SpawnParams);
+        if (NewActor && Params->HasField(TEXT("static_mesh")))
+        {
+            const FString MeshPath = Params->GetStringField(TEXT("static_mesh"));
+            UStaticMesh* MeshAsset = Cast<UStaticMesh>(UEditorAssetLibrary::LoadAsset(MeshPath));
+            if (MeshAsset)
+            {
+                AStaticMeshActor* MeshActor = Cast<AStaticMeshActor>(NewActor);
+                if (MeshActor && MeshActor->GetStaticMeshComponent())
+                {
+                    MeshActor->GetStaticMeshComponent()->SetStaticMesh(MeshAsset);
+                }
+            }
+            else
+            {
+                return FUnrealMCPCommonUtils::CreateErrorResponse(
+                    FString::Printf(TEXT("Failed to load static mesh asset: %s"), *MeshPath));
+            }
+        }
     }
     else if (ActorType == TEXT("PointLight"))
     {
