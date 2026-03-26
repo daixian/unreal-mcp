@@ -6,11 +6,13 @@
 #include "Commands/UnrealMCPCommonUtils.h"
 #include "Editor.h"
 #include "EditorViewportClient.h"
+#include "LevelEditorSubsystem.h"
 #include "LevelEditorViewport.h"
 #include "ImageUtils.h"
 #include "HighResScreenshot.h"
 #include "Engine/GameViewportClient.h"
 #include "Misc/FileHelper.h"
+#include "Misc/EngineVersionComparison.h"
 #include "GameFramework/Actor.h"
 #include "Engine/Selection.h"
 #include "Kismet/GameplayStatics.h"
@@ -29,9 +31,12 @@
 #include "Engine/World.h"
 #include "PlayInEditorDataTypes.h"
 #include "EditorAssetLibrary.h"
-#include "EditorLevelLibrary.h"
 
-namespace
+#if UE_VERSION_OLDER_THAN(5, 5, 0)
+#include "EditorLevelLibrary.h"
+#endif
+
+namespace UnrealMCPEditorCommandsPrivate
 {
     /**
      * @brief 将 EWorldType 枚举转换为字符串。
@@ -205,6 +210,64 @@ namespace
         ResultObj->SetStringField(TEXT("world_type"), WorldTypeToString(World->WorldType));
         ResultObj->SetStringField(TEXT("world_name"), World->GetName());
         ResultObj->SetStringField(TEXT("world_path"), World->GetPathName());
+    }
+
+    /**
+     * @brief 使用兼容版本的 API 加载关卡。
+     * @param [in] LevelPath 关卡资源路径。
+     * @return bool 加载成功返回 true，否则返回 false。
+     */
+    bool LoadLevelCompat(const FString& LevelPath)
+    {
+#if UE_VERSION_OLDER_THAN(5, 5, 0)
+        return UEditorLevelLibrary::LoadLevel(LevelPath);
+#else
+        ULevelEditorSubsystem* LevelEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<ULevelEditorSubsystem>() : nullptr;
+        return LevelEditorSubsystem ? LevelEditorSubsystem->LoadLevel(LevelPath) : false;
+#endif
+    }
+
+    /**
+     * @brief 使用兼容版本的 API 保存当前关卡。
+     * @return bool 保存成功返回 true，否则返回 false。
+     */
+    bool SaveCurrentLevelCompat()
+    {
+#if UE_VERSION_OLDER_THAN(5, 5, 0)
+        return UEditorLevelLibrary::SaveCurrentLevel();
+#else
+        ULevelEditorSubsystem* LevelEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<ULevelEditorSubsystem>() : nullptr;
+        return LevelEditorSubsystem ? LevelEditorSubsystem->SaveCurrentLevel() : false;
+#endif
+    }
+
+    /**
+     * @brief 使用兼容版本的 API 进行 PNG 压缩。
+     * @param [in] Width 图像宽度。
+     * @param [in] Height 图像高度。
+     * @param [in] Bitmap 原始像素。
+     * @param [out] OutCompressedBitmap 压缩后的 PNG 数据。
+     */
+    void CompressImageAsPngCompat(
+        int32 Width,
+        int32 Height,
+        const TArray<FColor>& Bitmap,
+        TArray64<uint8>& OutCompressedBitmap
+    )
+    {
+#if UE_VERSION_OLDER_THAN(5, 5, 0)
+        TArray<uint8> LegacyCompressedBitmap;
+        FImageUtils::CompressImageArray(Width, Height, Bitmap, LegacyCompressedBitmap);
+        OutCompressedBitmap.Reset();
+        OutCompressedBitmap.Append(LegacyCompressedBitmap.GetData(), LegacyCompressedBitmap.Num());
+#else
+        FImageUtils::PNGCompressImageArray(
+            Width,
+            Height,
+            TArrayView64<const FColor>(Bitmap.GetData(), Bitmap.Num()),
+            OutCompressedBitmap
+        );
+#endif
     }
 }
 
@@ -414,7 +477,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleLoadLevel(const TSharedP
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'level_path' parameter"));
     }
 
-    const bool bOk = UEditorLevelLibrary::LoadLevel(LevelPath);
+    const bool bOk = UnrealMCPEditorCommandsPrivate::LoadLevelCompat(LevelPath);
     if (!bOk)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(
@@ -434,7 +497,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleLoadLevel(const TSharedP
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSaveCurrentLevel(const TSharedPtr<FJsonObject>& Params)
 {
-    const bool bOk = UEditorLevelLibrary::SaveCurrentLevel();
+    const bool bOk = UnrealMCPEditorCommandsPrivate::SaveCurrentLevelCompat();
     if (!bOk)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to save current level"));
@@ -467,7 +530,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleStartPIE(const TSharedPt
         ResultObj->SetBoolField(TEXT("success"), true);
         ResultObj->SetBoolField(TEXT("already_playing"), true);
         ResultObj->SetStringField(TEXT("message"), TEXT("PIE is already running"));
-        AppendWorldInfo(ResultObj, GEditor->PlayWorld, TEXT("pie"));
+        UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, GEditor->PlayWorld, TEXT("pie"));
         return ResultObj;
     }
 
@@ -538,7 +601,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetPlayState(const TShar
     ResultObj->SetBoolField(TEXT("is_playing"), bIsPlaying);
     if (bIsPlaying)
     {
-        AppendWorldInfo(ResultObj, GEditor->PlayWorld, TEXT("pie"));
+        UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, GEditor->PlayWorld, TEXT("pie"));
     }
 
     return ResultObj;
@@ -558,7 +621,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorsInLevel(const T
 
     FString ErrorMessage;
     FString ResolvedWorldType;
-    UWorld* World = ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
+    UWorld* World = UnrealMCPEditorCommandsPrivate::ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
     if (!World)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
@@ -578,7 +641,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorsInLevel(const T
     
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetArrayField(TEXT("actors"), ActorArray);
-    AppendWorldInfo(ResultObj, World, ResolvedWorldType);
+    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, World, ResolvedWorldType);
     
     return ResultObj;
 }
@@ -603,7 +666,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleFindActorsByName(const T
 
     FString ErrorMessage;
     FString ResolvedWorldType;
-    UWorld* World = ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
+    UWorld* World = UnrealMCPEditorCommandsPrivate::ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
     if (!World)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
@@ -623,7 +686,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleFindActorsByName(const T
     
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetArrayField(TEXT("actors"), MatchingActors);
-    AppendWorldInfo(ResultObj, World, ResolvedWorldType);
+    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, World, ResolvedWorldType);
     
     return ResultObj;
 }
@@ -854,7 +917,7 @@ AActor* FUnrealMCPEditorCommands::ResolveActorByParams(
 )
 {
     FString ResolvedWorldType;
-    UWorld* World = ResolveWorldByParams(Params, ResolvedWorldType, OutErrorMessage);
+    UWorld* World = UnrealMCPEditorCommandsPrivate::ResolveWorldByParams(Params, ResolvedWorldType, OutErrorMessage);
     if (!World)
     {
         return nullptr;
@@ -928,7 +991,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorProperties(const
     }
 
     TSharedPtr<FJsonObject> ResultObj = FUnrealMCPCommonUtils::ActorToJsonObject(TargetActor, true, bIncludeComponents, bDetailedComponents);
-    AppendWorldInfo(ResultObj, ResolvedWorld, ResolvedWorldType);
+    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, ResolvedWorld, ResolvedWorldType);
     return ResultObj;
 }
 
@@ -969,7 +1032,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorComponents(const
         ResultObj->SetArrayField(TEXT("components"), EmptyComponents);
         ResultObj->SetNumberField(TEXT("component_count"), 0);
     }
-    AppendWorldInfo(ResultObj, ResolvedWorld, ResolvedWorldType);
+    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, ResolvedWorld, ResolvedWorldType);
 
     return ResultObj;
 }
@@ -989,7 +1052,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetSceneComponents(const
 
     FString ErrorMessage;
     FString ResolvedWorldType;
-    UWorld* World = ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
+    UWorld* World = UnrealMCPEditorCommandsPrivate::ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
     if (!World)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
@@ -1033,7 +1096,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetSceneComponents(const
     ResultObj->SetArrayField(TEXT("actors"), ActorArray);
     ResultObj->SetNumberField(TEXT("actor_count"), ActorArray.Num());
     ResultObj->SetNumberField(TEXT("component_count"), TotalComponents);
-    AppendWorldInfo(ResultObj, World, ResolvedWorldType);
+    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, World, ResolvedWorldType);
     return ResultObj;
 }
 
@@ -1308,8 +1371,13 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleTakeScreenshot(const TSh
         
         if (Viewport->ReadPixels(Bitmap, FReadSurfaceDataFlags(), ViewportRect))
         {
-            TArray<uint8> CompressedBitmap;
-            FImageUtils::CompressImageArray(Viewport->GetSizeXY().X, Viewport->GetSizeXY().Y, Bitmap, CompressedBitmap);
+            TArray64<uint8> CompressedBitmap;
+            UnrealMCPEditorCommandsPrivate::CompressImageAsPngCompat(
+                Viewport->GetSizeXY().X,
+                Viewport->GetSizeXY().Y,
+                Bitmap,
+                CompressedBitmap
+            );
             
             if (FFileHelper::SaveArrayToFile(CompressedBitmap, *FilePath))
             {

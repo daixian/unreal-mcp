@@ -25,6 +25,7 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/GameModeBase.h"
+#include "Misc/App.h"
 #include "UObject/UObjectGlobals.h"
 
 /**
@@ -61,6 +62,10 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCommand(const FString
     else if (CommandType == TEXT("compile_blueprint"))
     {
         return HandleCompileBlueprint(Params);
+    }
+    else if (CommandType == TEXT("cleanup_blueprint_for_reparent"))
+    {
+        return HandleCleanupBlueprintForReparent(Params);
     }
     else if (CommandType == TEXT("spawn_blueprint_actor"))
     {
@@ -175,8 +180,12 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCreateBlueprint(const
                 break;
             }
 
-            const FString ProjectClassPath = FString::Printf(TEXT("/Script/xrtest.%s"), *ClassBaseName);
-            FoundClass = LoadObject<UClass>(nullptr, *ProjectClassPath);
+            const FString ProjectModuleName = FApp::GetProjectName();
+            if (!ProjectModuleName.IsEmpty())
+            {
+                const FString ProjectClassPath = FString::Printf(TEXT("/Script/%s.%s"), *ProjectModuleName, *ClassBaseName);
+                FoundClass = LoadObject<UClass>(nullptr, *ProjectClassPath);
+            }
         }
 
         if (FoundClass)
@@ -944,6 +953,160 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCompileBlueprint(cons
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetStringField(TEXT("name"), BlueprintName);
     ResultObj->SetBoolField(TEXT("compiled"), true);
+    return ResultObj;
+}
+
+/**
+ * @brief 清理 Blueprint 重设父类后残留的节点。
+ * @param [in] Params 清理参数。
+ * @return TSharedPtr<FJsonObject> 清理结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCleanupBlueprintForReparent(const TSharedPtr<FJsonObject>& Params)
+{
+    FString BlueprintName;
+    if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'blueprint_name' parameter"));
+    }
+
+    UBlueprint* Blueprint = FUnrealMCPCommonUtils::FindBlueprint(BlueprintName);
+    if (!Blueprint)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintName));
+    }
+
+    TSet<FName> ComponentNamesToRemove;
+    const TArray<TSharedPtr<FJsonValue>>* RemoveComponentsJson = nullptr;
+    if (Params->TryGetArrayField(TEXT("remove_components"), RemoveComponentsJson))
+    {
+        for (const TSharedPtr<FJsonValue>& Entry : *RemoveComponentsJson)
+        {
+            const FString ComponentName = Entry.IsValid() ? Entry->AsString() : FString();
+            if (!ComponentName.IsEmpty())
+            {
+                ComponentNamesToRemove.Add(FName(*ComponentName));
+            }
+        }
+    }
+
+    TSet<FName> MemberNamesToRemove;
+    const TArray<TSharedPtr<FJsonValue>>* RemoveMemberNodesJson = nullptr;
+    if (Params->TryGetArrayField(TEXT("remove_member_nodes"), RemoveMemberNodesJson))
+    {
+        for (const TSharedPtr<FJsonValue>& Entry : *RemoveMemberNodesJson)
+        {
+            const FString MemberName = Entry.IsValid() ? Entry->AsString() : FString();
+            if (!MemberName.IsEmpty())
+            {
+                MemberNamesToRemove.Add(FName(*MemberName));
+            }
+        }
+    }
+
+    bool bRefreshNodes = true;
+    bool bCompileBlueprint = true;
+    bool bSaveAsset = true;
+    Params->TryGetBoolField(TEXT("refresh_nodes"), bRefreshNodes);
+    Params->TryGetBoolField(TEXT("compile"), bCompileBlueprint);
+    Params->TryGetBoolField(TEXT("save"), bSaveAsset);
+
+    int32 RemovedComponentCount = 0;
+    int32 RemovedNodeCount = 0;
+    bool bStructuralChange = false;
+
+    if (Blueprint->SimpleConstructionScript && ComponentNamesToRemove.Num() > 0)
+    {
+        const TArray<USCS_Node*> ExistingNodes = Blueprint->SimpleConstructionScript->GetAllNodes();
+        for (USCS_Node* Node : ExistingNodes)
+        {
+            if (!Node)
+            {
+                continue;
+            }
+
+            if (ComponentNamesToRemove.Contains(Node->GetVariableName()))
+            {
+                Blueprint->SimpleConstructionScript->RemoveNodeAndPromoteChildren(Node);
+                ++RemovedComponentCount;
+                bStructuralChange = true;
+            }
+        }
+    }
+
+    TSet<FName> NodeMembersToRemove = MemberNamesToRemove;
+    NodeMembersToRemove.Append(ComponentNamesToRemove);
+
+    if (NodeMembersToRemove.Num() > 0)
+    {
+        TArray<UEdGraph*> AllGraphs;
+        Blueprint->GetAllGraphs(AllGraphs);
+
+        for (UEdGraph* Graph : AllGraphs)
+        {
+            if (!Graph)
+            {
+                continue;
+            }
+
+            TArray<UEdGraphNode*> NodesToRemove;
+            for (UEdGraphNode* GraphNode : Graph->Nodes)
+            {
+                if (const UK2Node_VariableGet* VariableGetNode = Cast<UK2Node_VariableGet>(GraphNode))
+                {
+                    if (NodeMembersToRemove.Contains(VariableGetNode->VariableReference.GetMemberName()))
+                    {
+                        NodesToRemove.Add(GraphNode);
+                    }
+                }
+                else if (const UK2Node_VariableSet* VariableSetNode = Cast<UK2Node_VariableSet>(GraphNode))
+                {
+                    if (NodeMembersToRemove.Contains(VariableSetNode->VariableReference.GetMemberName()))
+                    {
+                        NodesToRemove.Add(GraphNode);
+                    }
+                }
+            }
+
+            for (UEdGraphNode* NodeToRemove : NodesToRemove)
+            {
+                Graph->RemoveNode(NodeToRemove);
+                ++RemovedNodeCount;
+                bStructuralChange = true;
+            }
+        }
+    }
+
+    if (bStructuralChange)
+    {
+        FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+    }
+    else
+    {
+        FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    }
+
+    if (bRefreshNodes)
+    {
+        FBlueprintEditorUtils::RefreshAllNodes(Blueprint);
+    }
+
+    if (bCompileBlueprint)
+    {
+        FKismetEditorUtilities::CompileBlueprint(Blueprint);
+    }
+
+    bool bSaved = false;
+    if (bSaveAsset)
+    {
+        bSaved = UEditorAssetLibrary::SaveLoadedAsset(Blueprint, false);
+    }
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetStringField(TEXT("name"), Blueprint->GetName());
+    ResultObj->SetStringField(TEXT("path"), Blueprint->GetPathName());
+    ResultObj->SetNumberField(TEXT("removed_components"), RemovedComponentCount);
+    ResultObj->SetNumberField(TEXT("removed_nodes"), RemovedNodeCount);
+    ResultObj->SetBoolField(TEXT("saved"), bSaved);
     return ResultObj;
 }
 

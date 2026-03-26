@@ -9,6 +9,7 @@
 #include "Interfaces/IPv4/IPv4Address.h"
 #include "Interfaces/IPv4/IPv4Endpoint.h"
 #include "Commands/UnrealMCPEditorCommands.h"
+#include "Commands/UnrealMCPAssetCommands.h"
 #include "Commands/UnrealMCPBlueprintCommands.h"
 #include "Commands/UnrealMCPBlueprintNodeCommands.h"
 #include "Commands/UnrealMCPProjectCommands.h"
@@ -89,6 +90,8 @@ private:
 
 	/** @brief 编辑器命令处理器实例。 */
 	TSharedPtr<FUnrealMCPEditorCommands> EditorCommands;
+	/** @brief 资产命令处理器实例。 */
+	TSharedPtr<FUnrealMCPAssetCommands> AssetCommands;
 	/** @brief Blueprint 资产命令处理器实例。 */
 	TSharedPtr<FUnrealMCPBlueprintCommands> BlueprintCommands;
 	/** @brief Blueprint 节点图命令处理器实例。 */

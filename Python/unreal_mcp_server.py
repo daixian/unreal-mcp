@@ -267,6 +267,7 @@ mcp = FastMCP(
 
 # Import and register tools
 from tools.editor_tools import register_editor_tools
+from tools.asset_tools import register_asset_tools
 from tools.blueprint_tools import register_blueprint_tools
 from tools.node_tools import register_blueprint_node_tools
 from tools.project_tools import register_project_tools
@@ -274,6 +275,7 @@ from tools.umg_tools import register_umg_tools
 
 # Register tools
 register_editor_tools(mcp)
+register_asset_tools(mcp)
 register_blueprint_tools(mcp)
 register_blueprint_node_tools(mcp)
 register_project_tools(mcp)
@@ -308,8 +310,8 @@ def info():
     - `get_play_state()` - Query current Play-In-Editor running state
 
     ### Actor Management
-    - `get_actors_in_level(include_components=False, detailed_components=True, world_type="auto")` - List all actors in selected world (auto/editor/pie)
-    - `find_actors_by_name(pattern, world_type="auto", include_components=False, detailed_components=True)` - Find actors by name pattern
+    - `get_actors_in_level(include_components=False, detailed_components=True, world_type="auto")` - Return actor query result object for selected world (auto/editor/pie)
+    - `find_actors_by_name(pattern, world_type="auto", include_components=False, detailed_components=True)` - Return actor query result object filtered by name pattern
     - `get_scene_components(pattern="", detailed_components=True, world_type="auto")` - Query all scene actors and their components
     - `get_actor_components(name="", actor_path="", detailed_components=True, world_type="auto")` - Query all components for one actor
     - `spawn_actor(name, type, location=[0,0,0], rotation=[0,0,0], scale=[1,1,1])` - Create actors
@@ -323,9 +325,18 @@ def info():
     - `set_static_mesh_properties(blueprint_name, component_name, static_mesh)` - Configure meshes
     - `set_physics_properties(blueprint_name, component_name)` - Configure physics
     - `compile_blueprint(blueprint_name)` - Compile Blueprint changes
+    - `cleanup_blueprint_for_reparent(blueprint_name, remove_components=[], remove_member_nodes=[], refresh_nodes=True, compile=True, save=True)` - Remove stale component/member nodes after reparenting
     - `set_blueprint_property(blueprint_name, property_name, property_value)` - Set properties
     - `set_pawn_properties(blueprint_name)` - Configure Pawn settings
     - `spawn_blueprint_actor(blueprint_name, actor_name)` - Spawn Blueprint actors
+
+    ## Asset Tools
+    - `search_assets(path="/Game", query="", class_name="", recursive_paths=True, include_tags=False, limit=50)` - Search assets
+    - `get_asset_metadata(asset_path="", object_path="", asset_name="", name="")` - Query asset metadata, tags and references
+    - `get_asset_dependencies(asset_path="", object_path="", asset_name="", name="")` - Query detailed dependencies
+    - `get_asset_referencers(asset_path="", object_path="", asset_name="", name="")` - Query detailed referencers
+    - `get_asset_summary(asset_path="", object_path="", asset_name="", name="")` - Load asset and summarize by type
+    - `get_blueprint_summary(asset_path="", object_path="", asset_name="", name="")` - Load Blueprint asset and summarize structure
     
     ## Blueprint Node Management
     - `add_blueprint_event_node(blueprint_name, event_type)` - Add event nodes
@@ -367,7 +378,13 @@ def info():
     - Test functionality in isolation
     - Consider performance implications
     - Document complex setups
-    
+
+    ### Asset Inspection
+    - Prefer `search_assets` and `get_asset_metadata` for low-cost discovery
+    - Use `get_asset_summary` only when you need semantic details from a loaded asset
+    - Use `get_blueprint_summary` for Blueprint-specific structure instead of generic summaries
+    - Check dependencies and referencers before changing shared assets
+
     ### Error Handling
     - Check command responses for success
     - Handle errors gracefully

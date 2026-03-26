@@ -17,7 +17,7 @@
 	"Modules": [
 		{
 			"Name": "UnrealMCP",
-			"Type": "EditorNoCommandlet",
+			"Type": "Editor",
 			"LoadingPhase": "Default",
 			"WhitelistPlatforms": [
 				"Win64",

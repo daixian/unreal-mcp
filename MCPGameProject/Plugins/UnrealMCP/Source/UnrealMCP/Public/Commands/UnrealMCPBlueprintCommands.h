@@ -59,6 +59,13 @@ private:
     TSharedPtr<FJsonObject> HandleCompileBlueprint(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 清理 Blueprint 重设父类后残留的组件与成员节点。
+     * @param [in] Params 清理参数。
+     * @return TSharedPtr<FJsonObject> 清理结果。
+     */
+    TSharedPtr<FJsonObject> HandleCleanupBlueprintForReparent(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 生成 Blueprint Actor。
      * @param [in] Params 生成参数。
      * @return TSharedPtr<FJsonObject> 生成结果。

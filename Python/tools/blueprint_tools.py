@@ -5,7 +5,7 @@ This module provides tools for creating and manipulating Blueprint assets in Unr
 """
 
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from mcp.server.fastmcp import FastMCP, Context
 
 # Get logger
@@ -281,6 +281,62 @@ def register_blueprint_tools(mcp: FastMCP):
         except Exception as e:
             error_msg = f"Error compiling blueprint: {e}"
             logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def cleanup_blueprint_for_reparent(
+        ctx: Context,
+        blueprint_name: str,
+        remove_components: Optional[List[str]] = None,
+        remove_member_nodes: Optional[List[str]] = None,
+        refresh_nodes: bool = True,
+        compile: bool = True,
+        save: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Remove stale component/member nodes from a Blueprint after reparenting.
+
+        Args:
+            blueprint_name: Name or path of the target Blueprint
+            remove_components: Component names to remove from SCS and related variable nodes
+            remove_member_nodes: Member variable nodes to remove from graphs
+            refresh_nodes: Whether to refresh all Blueprint nodes after cleanup
+            compile: Whether to compile the Blueprint after cleanup
+            save: Whether to save the Blueprint asset after cleanup
+
+        Returns:
+            Cleanup result with removed component/node counts
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("连接 Unreal Engine 失败")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": blueprint_name,
+                "remove_components": remove_components or [],
+                "remove_member_nodes": remove_member_nodes or [],
+                "refresh_nodes": refresh_nodes,
+                "compile": compile,
+                "save": save
+            }
+
+            logger.info(f"开始清理重设父类后的 Blueprint 残留节点: {blueprint_name}")
+            response = unreal.send_command("cleanup_blueprint_for_reparent", params)
+
+            if not response:
+                logger.error("Unreal Engine 没有返回 cleanup_blueprint_for_reparent 结果")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"cleanup_blueprint_for_reparent 返回: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error cleaning Blueprint after reparent: {e}"
+            logger.error(f"执行 cleanup_blueprint_for_reparent 出错: {error_msg}")
             return {"success": False, "message": error_msg}
 
     @mcp.tool()

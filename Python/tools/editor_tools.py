@@ -13,6 +13,35 @@ logger = logging.getLogger("UnrealMCP")
 
 def register_editor_tools(mcp: FastMCP):
     """Register editor tools with the MCP server."""
+
+    def _build_actor_list_result(
+        response: Dict[str, Any],
+        fallback_message: str
+    ) -> Dict[str, Any]:
+        """Normalize actor list responses to a stable object shape."""
+        result = response.get("result", response)
+        actors = result.get("actors", [])
+
+        if not isinstance(actors, list):
+            logger.warning(f"Unexpected actor list format: {response}")
+            return {
+                "success": False,
+                "message": fallback_message,
+                "actors": [],
+                "actor_count": 0,
+            }
+
+        normalized_result = {
+            "success": True,
+            "actors": actors,
+            "actor_count": len(actors),
+        }
+
+        for field_name in ("resolved_world_type", "world_type", "world_name", "world_path"):
+            if field_name in result:
+                normalized_result[field_name] = result[field_name]
+
+        return normalized_result
     
     @mcp.tool()
     def get_actors_in_level(
@@ -20,8 +49,8 @@ def register_editor_tools(mcp: FastMCP):
         include_components: bool = False,
         detailed_components: bool = True,
         world_type: str = "auto"
-    ) -> List[Dict[str, Any]]:
-        """Get a list of all actors in the current level.
+    ) -> Dict[str, Any]:
+        """Get actors in the current level.
         
         Args:
             include_components: Whether to include each actor's component list
@@ -34,7 +63,12 @@ def register_editor_tools(mcp: FastMCP):
             unreal = get_unreal_connection()
             if not unreal:
                 logger.warning("Failed to connect to Unreal Engine")
-                return []
+                return {
+                    "success": False,
+                    "message": "Failed to connect to Unreal Engine",
+                    "actors": [],
+                    "actor_count": 0,
+                }
 
             response = unreal.send_command("get_actors_in_level", {
                 "include_components": include_components,
@@ -44,27 +78,31 @@ def register_editor_tools(mcp: FastMCP):
             
             if not response:
                 logger.warning("No response from Unreal Engine")
-                return []
-                
-            # Log the complete response for debugging
-            logger.info(f"Complete response from Unreal: {response}")
-            
-            # Check response format
-            if "result" in response and "actors" in response["result"]:
-                actors = response["result"]["actors"]
-                logger.info(f"Found {len(actors)} actors in level")
-                return actors
-            elif "actors" in response:
-                actors = response["actors"]
-                logger.info(f"Found {len(actors)} actors in level")
-                return actors
-                
-            logger.warning(f"Unexpected response format: {response}")
-            return []
+                return {
+                    "success": False,
+                    "message": "No response from Unreal Engine",
+                    "actors": [],
+                    "actor_count": 0,
+                }
+
+            normalized_result = _build_actor_list_result(
+                response,
+                "Unexpected response format while getting actors in level",
+            )
+            logger.info(
+                "Get actors in level completed, actor_count=%s",
+                normalized_result.get("actor_count", 0),
+            )
+            return normalized_result
             
         except Exception as e:
             logger.error(f"Error getting actors: {e}")
-            return []
+            return {
+                "success": False,
+                "message": str(e),
+                "actors": [],
+                "actor_count": 0,
+            }
 
     @mcp.tool()
     def find_actors_by_name(
@@ -73,7 +111,7 @@ def register_editor_tools(mcp: FastMCP):
         world_type: str = "auto",
         include_components: bool = False,
         detailed_components: bool = True
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """Find actors by name pattern.
         
         Args:
@@ -88,7 +126,12 @@ def register_editor_tools(mcp: FastMCP):
             unreal = get_unreal_connection()
             if not unreal:
                 logger.warning("Failed to connect to Unreal Engine")
-                return []
+                return {
+                    "success": False,
+                    "message": "Failed to connect to Unreal Engine",
+                    "actors": [],
+                    "actor_count": 0,
+                }
                 
             response = unreal.send_command("find_actors_by_name", {
                 "pattern": pattern,
@@ -98,17 +141,29 @@ def register_editor_tools(mcp: FastMCP):
             })
             
             if not response:
-                return []
+                return {
+                    "success": False,
+                    "message": "No response from Unreal Engine",
+                    "actors": [],
+                    "actor_count": 0,
+                }
 
-            if "result" in response and "actors" in response["result"]:
-                return response["result"]["actors"]
-            if "actors" in response:
-                return response["actors"]
-            return []
+            normalized_result = _build_actor_list_result(
+                response,
+                "Unexpected response format while finding actors by name",
+            )
+            normalized_result["pattern"] = pattern
+            return normalized_result
             
         except Exception as e:
             logger.error(f"Error finding actors: {e}")
-            return []
+            return {
+                "success": False,
+                "message": str(e),
+                "pattern": pattern,
+                "actors": [],
+                "actor_count": 0,
+            }
     
     @mcp.tool()
     def spawn_actor(

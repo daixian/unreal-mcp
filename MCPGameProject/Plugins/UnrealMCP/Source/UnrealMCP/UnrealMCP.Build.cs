@@ -50,6 +50,7 @@ public class UnrealMCP : ModuleRules
 				"Kismet",
 				"KismetCompiler",
 				"BlueprintGraph",
+				"LevelEditor",
 				"Projects",
 				"AssetRegistry"
 			}

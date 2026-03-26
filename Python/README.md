@@ -1,6 +1,6 @@
 # Unreal MCP
 
-Python bridge for interacting with Unreal Engine 5.5 using the Model Context Protocol (MCP).
+Python bridge for interacting with Unreal Engine 5.7 using the Model Context Protocol (MCP).
 
 ## Setup
 
@@ -37,4 +37,8 @@ You should make sure you have installed dependencies and/or are running in the `
 
 ## Development
 
-To add new tools, modify the `UnrealMCPBridge.py` file to add new command handlers, and update the `unreal_mcp_server.py` file to expose them through the HTTP API. 
+To add new Unreal-side commands, update the C++ bridge and command handlers under `MCPGameProject/Plugins/UnrealMCP/Source/UnrealMCP`.
+
+To expose those commands through MCP, add or update the matching Python tool module under `tools/`, then register it in `unreal_mcp_server.py`.
+
+Current Python tool modules include editor, blueprint, blueprint node, project, UMG, and asset tools.

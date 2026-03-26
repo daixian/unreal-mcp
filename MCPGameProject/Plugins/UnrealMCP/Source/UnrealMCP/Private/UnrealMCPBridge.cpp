@@ -56,6 +56,7 @@
 #include "Subsystems/EditorActorSubsystem.h"
 // Include our new command handler classes
 #include "Commands/UnrealMCPEditorCommands.h"
+#include "Commands/UnrealMCPAssetCommands.h"
 #include "Commands/UnrealMCPBlueprintCommands.h"
 #include "Commands/UnrealMCPBlueprintNodeCommands.h"
 #include "Commands/UnrealMCPProjectCommands.h"
@@ -72,6 +73,7 @@
 UUnrealMCPBridge::UUnrealMCPBridge()
 {
     EditorCommands = MakeShared<FUnrealMCPEditorCommands>();
+    AssetCommands = MakeShared<FUnrealMCPAssetCommands>();
     BlueprintCommands = MakeShared<FUnrealMCPBlueprintCommands>();
     BlueprintNodeCommands = MakeShared<FUnrealMCPBlueprintNodeCommands>();
     ProjectCommands = MakeShared<FUnrealMCPProjectCommands>();
@@ -84,6 +86,7 @@ UUnrealMCPBridge::UUnrealMCPBridge()
 UUnrealMCPBridge::~UUnrealMCPBridge()
 {
     EditorCommands.Reset();
+    AssetCommands.Reset();
     BlueprintCommands.Reset();
     BlueprintNodeCommands.Reset();
     ProjectCommands.Reset();
@@ -104,6 +107,12 @@ void UUnrealMCPBridge::Initialize(FSubsystemCollectionBase& Collection)
     ServerThread = nullptr;
     Port = MCP_SERVER_PORT;
     FIPv4Address::Parse(MCP_SERVER_HOST, ServerAddress);
+
+    if (IsRunningCommandlet())
+    {
+        UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Running in commandlet mode, skip MCP server startup"));
+        return;
+    }
 
     // Start the server automatically
     StartServer();
@@ -273,12 +282,23 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
             {
                 ResultJson = EditorCommands->HandleCommand(CommandType, Params);
             }
+            // Asset Commands
+            else if (CommandType == TEXT("search_assets") ||
+                     CommandType == TEXT("get_asset_metadata") ||
+                     CommandType == TEXT("get_asset_dependencies") ||
+                     CommandType == TEXT("get_asset_referencers") ||
+                     CommandType == TEXT("get_asset_summary") ||
+                     CommandType == TEXT("get_blueprint_summary"))
+            {
+                ResultJson = AssetCommands->HandleCommand(CommandType, Params);
+            }
             // Blueprint Commands
             else if (CommandType == TEXT("create_blueprint") || 
                      CommandType == TEXT("add_component_to_blueprint") || 
                      CommandType == TEXT("set_component_property") || 
                      CommandType == TEXT("set_physics_properties") || 
                      CommandType == TEXT("compile_blueprint") || 
+                     CommandType == TEXT("cleanup_blueprint_for_reparent") ||
                      CommandType == TEXT("set_blueprint_property") || 
                      CommandType == TEXT("set_game_mode_default_pawn") ||
                      CommandType == TEXT("set_static_mesh_properties") ||
