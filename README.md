@@ -23,14 +23,12 @@ git submodule add git@github.com:daixian/unreal-mcp.git Plugins/UnrealMCP
 git submodule update --init --recursive
 ```
 
-## ⚠️ 实验状态
-
-本项目当前处于**实验阶段（EXPERIMENTAL）**。API、功能和实现细节都可能发生较大变化。欢迎测试与反馈，但请注意：
-
-- 可能在无通知的情况下出现破坏性变更
-- 功能可能不完整或不稳定
-- 文档可能过时或缺失
-- 当前不建议用于生产环境
+## 状态
+- 当前仓库仍在持续整理中，目录结构已经调整为“仓库根目录即插件根目录”，便于直接以 `Plugins/UnrealMCP` 的形式接入现有 UE 项目。
+- 计划按 Unreal Engine 版本维护分支，例如 `ue5.7`。涉及引擎 API 差异、构建适配、蓝图节点行为差异时，会尽量放到对应版本分支中处理，避免不同 UE 版本的兼容代码混在一起。
+- `main` 分支用于日常开发、结构整理和通用改进；如果仓库中已经存在目标引擎版本的专用分支，优先使用对应分支。
+- 当前开发协作主要基于 Codex 进行，文档、代码和工具会按这个工作流持续整理。
+- 由于本项目由 UE C++ 插件和 `Python/` 下的 MCP 服务端共同组成，涉及命令、参数或返回结构变更时，通常需要同时更新两侧实现与文档。
 
 ## 🌟 概览
 
@@ -160,7 +158,3 @@ uv pip install -e .
 
 ## License
 MIT
-
-## 问题反馈
-
-如有问题，可以在 X/Twitter 联系我：[@chongdashu](https://www.x.com/chongdashu)
