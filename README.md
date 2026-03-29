@@ -5,12 +5,23 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.5%2B-orange)](https://www.unrealengine.com)
-[![Python](https://img.shields.io/badge/Python-3.12%2B-yellow)](https://www.python.org)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-yellow)](https://www.python.org)
 [![Status](https://img.shields.io/badge/Status-Experimental-red)](https://github.com/chongdashu/unreal-mcp)
 
 </div>
 
-本项目通过 Model Context Protocol（MCP），让 Cursor、Windsurf、Claude Desktop 等 AI 助手客户端可以使用自然语言控制 Unreal Engine。
+`unreal-mcp` 是一个 Unreal Engine 编辑器插件仓库。它通过 Model Context Protocol（MCP），让 Cursor、Windsurf、Claude Desktop 等 AI 助手客户端可以使用自然语言控制 Unreal Engine。
+
+仓库根目录本身就是插件目录。使用时，直接把本仓库克隆到目标 UE 项目的 `Plugins/UnrealMCP` 下即可，不再额外附带示例 `.uproject` 工程。
+
+```bash
+cd <你的UE项目目录>
+git clone git@github.com:daixian/unreal-mcp.git Plugins/UnrealMCP
+
+# 或添加为 Git 子模块
+git submodule add git@github.com:daixian/unreal-mcp.git Plugins/UnrealMCP
+git submodule update --init --recursive
+```
 
 ## ⚠️ 实验状态
 
@@ -23,7 +34,7 @@
 
 ## 🌟 概览
 
-Unreal MCP 集成提供了通过自然语言控制 Unreal Engine 的完整工具能力：
+Unreal MCP 当前提供以下几类能力：
 
 | 类别 | 能力 |
 |----------|-------------|
@@ -36,17 +47,13 @@ Unreal MCP 集成提供了通过自然语言控制 Unreal Engine 的完整工具
 
 ## 🧩 组件
 
-### 示例项目（MCPGameProject）`MCPGameProject`
-- 基于 Blank 项目，并已添加 UnrealMCP 插件。
-
-### 插件（UnrealMCP）`MCPGameProject/Plugins/UnrealMCP`
-- 用于 MCP 通信的原生 TCP 服务器
+### Unreal 插件 `Source/UnrealMCP`
+- 提供用于 MCP 通信的原生 TCP 服务器
 - 集成 Unreal Editor 子系统
 - 实现 Actor 操作工具
 - 处理命令执行与响应返回
 
 ### Python MCP 服务器 `Python/unreal_mcp_server.py`
-- 实现在 `unreal_mcp_server.py`
 - 管理到 C++ 插件的 TCP Socket 连接（端口 55557）
 - 处理命令序列化与响应解析
 - 提供错误处理与连接管理
@@ -55,65 +62,59 @@ Unreal MCP 集成提供了通过自然语言控制 Unreal Engine 的完整工具
 
 ## 📂 目录结构
 
-- **MCPGameProject/** - Unreal 示例项目
-  - **Plugins/UnrealMCP/** - C++ 插件源码
-    - **Source/UnrealMCP/** - 插件源代码
-    - **UnrealMCP.uplugin** - 插件定义文件
-
-- **Python/** - Python 服务器与工具
-  - **tools/** - Actor、编辑器、Blueprint 操作工具模块
-  - **scripts/** - 示例脚本与演示
-
-- **Docs/** - 完整文档
-  - 参见 [Docs/README.md](Docs/README.md) 获取文档索引
+```text
+UnrealMCP/
+├─Content/                  # 插件内容资源
+├─Docs/                     # 使用说明与工具文档
+├─Python/                   # MCP Python 服务端与测试脚本
+│  ├─tools/                 # Python MCP 工具模块
+│  └─scripts/               # 直连测试脚本
+├─Source/UnrealMCP/         # C++ 插件源码
+├─README.md
+└─UnrealMCP.uplugin
+```
 
 ## 🚀 快速开始
 
 ### 前置条件
 - Unreal Engine 5.5+
-- Python 3.12+
+- Python 3.10+
 - MCP 客户端（如 Claude Desktop、Cursor、Windsurf）
 
-### 示例项目
+### 安装到现有 UE 项目
 
-为快速上手，你可以直接使用 `MCPGameProject` 中的启动项目。它是一个 UE 5.5 Blank Starter Project，并已配置好 `UnrealMCP.uplugin`。
+1. 在你的 UE 项目根目录下创建 `Plugins` 文件夹（如果还没有）。
+2. 将本仓库克隆到 `Plugins/UnrealMCP`，或添加为 Git 子模块：
 
-1. **准备项目**
-   - 右键你的 `.uproject` 文件
-   - 生成 Visual Studio 项目文件
-2. **构建项目（包含插件）**
-   - 打开解决方案（`.sln`）
-   - 目标选择 `Development Editor`
-   - 执行 Build
+   ```bash
+   git clone <repo-url> Plugins/UnrealMCP
 
-### 插件
-如果你希望在自己的现有项目中使用该插件：
+   # 或
+   git submodule add <repo-url> Plugins/UnrealMCP
+   git submodule update --init --recursive
+   ```
 
-1. **复制插件到你的项目**
-   - 将 `MCPGameProject/Plugins/UnrealMCP` 复制到你的项目 `Plugins` 文件夹
+3. 右键你的 `.uproject` 文件，执行“生成 Visual Studio 项目文件”。
+4. 打开解决方案，构建 `<你的项目名>Editor` 的 `Development Editor` 配置。
+5. 启动编辑器，在 `Edit > Plugins` 中确认 `UnrealMCP` 已启用；如果提示重启，则按提示重启编辑器。
 
-2. **启用插件**
-   - 打开 Edit > Plugins
-   - 在 Editor 分类找到 “UnrealMCP”
-   - 启用插件
-   - 按提示重启编辑器
-
-3. **构建插件**
-   - 右键 `.uproject` 文件
-   - 生成 Visual Studio 项目文件
-   - 打开解决方案（`.sln`）
-   - 按你的目标平台和输出设置进行构建
+> 说明：`UnrealMCP` 当前是 Editor 类型插件，主要用于编辑器内的 MCP 交互流程，不作为游戏运行时模块参与打包。
 
 ### Python 服务器设置
 
-详细 Python 配置见 [Python/README.md](Python/README.md)，包括：
-- Python 环境配置
-- 运行 MCP 服务器
-- 使用直连或服务器模式连接
+`Python/` 目录随插件仓库一起分发，但不参与 UE 模块编译。需要单独准备 Python 环境：
+
+```bash
+cd Plugins/UnrealMCP/Python
+uv venv
+uv pip install -e .
+```
+
+详细说明见 [Python/README.md](Python/README.md)。
 
 ### 配置 MCP 客户端
 
-根据你的 MCP 客户端，使用如下 `mcp` 配置 JSON：
+将 MCP 客户端配置为运行插件目录下的 Python 服务端。下面是通用示例：
 
 ```json
 {
@@ -122,7 +123,7 @@ Unreal MCP 集成提供了通过自然语言控制 Unreal Engine 的完整工具
       "command": "uv",
       "args": [
         "--directory",
-        "<path/to/the/folder/PYTHON>",
+        "X:/Path/To/YourProject/Plugins/UnrealMCP/Python",
         "run",
         "unreal_mcp_server.py"
       ]
@@ -131,7 +132,7 @@ Unreal MCP 集成提供了通过自然语言控制 Unreal Engine 的完整工具
 }
 ```
 
-可参考仓库中的 `mcp.json` 示例。
+启动前请确保 Unreal Editor 已打开，并且加载的是包含该插件的目标项目。
 
 ### MCP 配置文件位置
 
@@ -146,6 +147,16 @@ Unreal MCP 集成提供了通过自然语言控制 Unreal Engine 的完整工具
 各客户端使用相同的 JSON 格式。
 将配置放到对应位置即可。
 
+## 📘 文档
+
+- [Docs/README.md](Docs/README.md)
+- [Python/README.md](Python/README.md)
+
+## 🔧 开发入口
+
+- C++ 插件实现位于 `Source/UnrealMCP`
+- Python MCP 工具位于 `Python/tools`
+- 工具说明位于 `Docs/Tools`
 
 ## License
 MIT
