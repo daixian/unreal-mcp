@@ -313,6 +313,25 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleAddComponentToBluepri
             }
         }
 
+        if (Params->HasField(TEXT("component_properties")))
+        {
+            const TSharedPtr<FJsonObject>* ComponentProperties = nullptr;
+            if (!Params->TryGetObjectField(TEXT("component_properties"), ComponentProperties) || !ComponentProperties || !ComponentProperties->IsValid())
+            {
+                return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("'component_properties' must be an object"));
+            }
+
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& PropertyEntry : (*ComponentProperties)->Values)
+            {
+                FString ErrorMessage;
+                if (!FUnrealMCPCommonUtils::SetObjectProperty(NewNode->ComponentTemplate, PropertyEntry.Key, PropertyEntry.Value, ErrorMessage))
+                {
+                    return FUnrealMCPCommonUtils::CreateErrorResponse(
+                        FString::Printf(TEXT("Failed to set component property '%s': %s"), *PropertyEntry.Key, *ErrorMessage));
+                }
+            }
+        }
+
         // Add to root or attach to requested parent component
         if (ParentName.IsEmpty())
         {
@@ -900,6 +919,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPhysicsProperties(
         PrimComponent->SetSimulatePhysics(Params->GetBoolField(TEXT("simulate_physics")));
     }
 
+    if (Params->HasField(TEXT("gravity_enabled")))
+    {
+        PrimComponent->SetEnableGravity(Params->GetBoolField(TEXT("gravity_enabled")));
+    }
+
     if (Params->HasField(TEXT("mass")))
     {
         float Mass = Params->GetNumberField(TEXT("mass"));
@@ -923,6 +947,10 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetPhysicsProperties(
 
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetStringField(TEXT("component"), ComponentName);
+    if (Params->HasField(TEXT("gravity_enabled")))
+    {
+        ResultObj->SetBoolField(TEXT("gravity_enabled"), Params->GetBoolField(TEXT("gravity_enabled")));
+    }
     return ResultObj;
 }
 

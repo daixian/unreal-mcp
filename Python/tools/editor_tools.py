@@ -196,7 +196,7 @@ def register_editor_tools(mcp: FastMCP):
             # Ensure all parameters are properly formatted
             params = {
                 "name": name,
-                "type": type.upper(),  # Make sure type is uppercase
+                "type": type.strip(),
                 "location": location,
                 "rotation": rotation
             }
@@ -468,6 +468,78 @@ def register_editor_tools(mcp: FastMCP):
 
         except Exception as e:
             logger.error(f"Error getting play state: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def start_live_coding(ctx: Context, show_console: bool = True) -> Dict[str, Any]:
+        """Enable Live Coding for the current editor session.
+        
+        Args:
+            show_console: Whether to show the Live Coding console window
+        """
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("连接 Unreal Engine 失败")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("start_live_coding", {
+                "show_console": show_console
+            })
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"启动 Live Coding 失败: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def compile_live_coding(
+        ctx: Context,
+        wait_for_completion: bool = False,
+        show_console: bool = True
+    ) -> Dict[str, Any]:
+        """Trigger a Live Coding compile.
+        
+        Args:
+            wait_for_completion: Whether to wait for compile completion before returning
+            show_console: Whether to show the Live Coding console window
+        """
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("连接 Unreal Engine 失败")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("compile_live_coding", {
+                "wait_for_completion": wait_for_completion,
+                "show_console": show_console
+            })
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"触发 Live Coding 编译失败: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_live_coding_state(ctx: Context) -> Dict[str, Any]:
+        """Get current Live Coding session state."""
+        from unreal_mcp_server import get_unreal_connection
+        
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("连接 Unreal Engine 失败")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("get_live_coding_state", {})
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"获取 Live Coding 状态失败: {e}")
             return {"success": False, "message": str(e)}
 
     @mcp.tool()

@@ -77,6 +77,27 @@ private:
     TSharedPtr<FJsonObject> HandleGetPlayState(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 启用当前编辑器会话的 Live Coding。
+     * @param [in] Params 启动参数（支持 show_console）。
+     * @return TSharedPtr<FJsonObject> 启动结果。
+     */
+    TSharedPtr<FJsonObject> HandleStartLiveCoding(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 触发一次 Live Coding 编译。
+     * @param [in] Params 编译参数（支持 wait_for_completion/show_console）。
+     * @return TSharedPtr<FJsonObject> 编译请求结果。
+     */
+    TSharedPtr<FJsonObject> HandleCompileLiveCoding(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 查询 Live Coding 的当前状态。
+     * @param [in] Params 查询参数（当前未使用）。
+     * @return TSharedPtr<FJsonObject> 状态结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetLiveCodingState(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 获取当前关卡中的全部 Actor。
      * @param [in] Params 查询参数（支持 include_components/detailed_components/world_type）。
      * @return TSharedPtr<FJsonObject> Actor 列表结果。

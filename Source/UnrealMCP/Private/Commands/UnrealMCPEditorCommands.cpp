@@ -31,6 +31,11 @@
 #include "Engine/World.h"
 #include "PlayInEditorDataTypes.h"
 #include "EditorAssetLibrary.h"
+#include "Modules/ModuleManager.h"
+
+#if PLATFORM_WINDOWS
+#include "ILiveCodingModule.h"
+#endif
 
 #if UE_VERSION_OLDER_THAN(5, 5, 0)
 #include "EditorLevelLibrary.h"
@@ -212,6 +217,80 @@ namespace UnrealMCPEditorCommandsPrivate
         ResultObj->SetStringField(TEXT("world_path"), World->GetPathName());
     }
 
+#if PLATFORM_WINDOWS
+    /**
+     * @brief 将 Live Coding 编译结果枚举转换为字符串。
+     * @param [in] CompileResult Live Coding 编译结果枚举。
+     * @return FString 便于序列化的结果字符串。
+     */
+    FString LiveCodingCompileResultToString(ELiveCodingCompileResult CompileResult)
+    {
+        switch (CompileResult)
+        {
+            case ELiveCodingCompileResult::Success:
+                return TEXT("Success");
+            case ELiveCodingCompileResult::NoChanges:
+                return TEXT("NoChanges");
+            case ELiveCodingCompileResult::InProgress:
+                return TEXT("InProgress");
+            case ELiveCodingCompileResult::CompileStillActive:
+                return TEXT("CompileStillActive");
+            case ELiveCodingCompileResult::NotStarted:
+                return TEXT("NotStarted");
+            case ELiveCodingCompileResult::Failure:
+                return TEXT("Failure");
+            case ELiveCodingCompileResult::Cancelled:
+                return TEXT("Cancelled");
+            default:
+                return TEXT("Unknown");
+        }
+    }
+
+    /**
+     * @brief 读取 Live Coding 模块的公共状态并写入响应对象。
+     * @param [in,out] ResultObj 结果 JSON 对象。
+     * @param [in] LiveCodingModule Live Coding 模块实例。
+     */
+    void AppendLiveCodingState(const TSharedPtr<FJsonObject>& ResultObj, ILiveCodingModule& LiveCodingModule)
+    {
+        if (!ResultObj.IsValid())
+        {
+            return;
+        }
+
+        ResultObj->SetBoolField(TEXT("has_started"), LiveCodingModule.HasStarted());
+        ResultObj->SetBoolField(TEXT("is_enabled_for_session"), LiveCodingModule.IsEnabledForSession());
+        ResultObj->SetBoolField(TEXT("can_enable_for_session"), LiveCodingModule.CanEnableForSession());
+        ResultObj->SetBoolField(TEXT("is_enabled_by_default"), LiveCodingModule.IsEnabledByDefault());
+        ResultObj->SetBoolField(TEXT("is_compiling"), LiveCodingModule.IsCompiling());
+        ResultObj->SetBoolField(TEXT("automatically_compile_new_classes"), LiveCodingModule.AutomaticallyCompileNewClasses());
+        ResultObj->SetStringField(TEXT("enable_error"), LiveCodingModule.GetEnableErrorText().ToString());
+    }
+
+    /**
+     * @brief 加载 Live Coding 模块。
+     * @param [out] OutErrorMessage 加载失败时的错误信息。
+     * @return ILiveCodingModule* 成功时返回模块指针，否则返回 nullptr。
+     */
+    ILiveCodingModule* LoadLiveCodingModule(FString& OutErrorMessage)
+    {
+        if (!FModuleManager::Get().ModuleExists(TEXT(LIVE_CODING_MODULE_NAME)))
+        {
+            OutErrorMessage = TEXT("当前编辑器构建未提供 Live Coding 模块");
+            return nullptr;
+        }
+
+        ILiveCodingModule* LiveCodingModule = FModuleManager::LoadModulePtr<ILiveCodingModule>(TEXT(LIVE_CODING_MODULE_NAME));
+        if (!LiveCodingModule)
+        {
+            OutErrorMessage = TEXT("加载 Live Coding 模块失败");
+            return nullptr;
+        }
+
+        return LiveCodingModule;
+    }
+#endif
+
     /**
      * @brief 使用兼容版本的 API 加载关卡。
      * @param [in] LevelPath 关卡资源路径。
@@ -314,6 +393,18 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     else if (CommandType == TEXT("get_play_state"))
     {
         return HandleGetPlayState(Params);
+    }
+    else if (CommandType == TEXT("start_live_coding"))
+    {
+        return HandleStartLiveCoding(Params);
+    }
+    else if (CommandType == TEXT("compile_live_coding"))
+    {
+        return HandleCompileLiveCoding(Params);
+    }
+    else if (CommandType == TEXT("get_live_coding_state"))
+    {
+        return HandleGetLiveCodingState(Params);
     }
 
     // Actor manipulation commands
@@ -608,6 +699,145 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetPlayState(const TShar
 }
 
 /**
+ * @brief 启用当前编辑器会话的 Live Coding。
+ * @param [in] Params 启动参数（支持 show_console）。
+ * @return TSharedPtr<FJsonObject> 启动结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleStartLiveCoding(const TSharedPtr<FJsonObject>& Params)
+{
+#if !PLATFORM_WINDOWS
+    return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Live Coding 仅支持 Windows 编辑器"));
+#else
+    FString ErrorMessage;
+    ILiveCodingModule* LiveCodingModule = UnrealMCPEditorCommandsPrivate::LoadLiveCodingModule(ErrorMessage);
+    if (!LiveCodingModule)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    bool bShowConsole = true;
+    if (Params.IsValid())
+    {
+        Params->TryGetBoolField(TEXT("show_console"), bShowConsole);
+    }
+
+    const bool bWasStarted = LiveCodingModule->HasStarted();
+    const bool bWasEnabledForSession = LiveCodingModule->IsEnabledForSession();
+
+    LiveCodingModule->EnableForSession(true);
+
+    if (bShowConsole && LiveCodingModule->HasStarted())
+    {
+        LiveCodingModule->ShowConsole();
+    }
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    UnrealMCPEditorCommandsPrivate::AppendLiveCodingState(ResultObj, *LiveCodingModule);
+    ResultObj->SetBoolField(TEXT("success"), LiveCodingModule->HasStarted() && LiveCodingModule->IsEnabledForSession());
+    ResultObj->SetBoolField(TEXT("show_console"), bShowConsole);
+    ResultObj->SetBoolField(TEXT("was_started"), bWasStarted);
+    ResultObj->SetBoolField(TEXT("was_enabled_for_session"), bWasEnabledForSession);
+
+    if (!ResultObj->GetBoolField(TEXT("success")))
+    {
+        const FString EnableErrorText = ResultObj->GetStringField(TEXT("enable_error"));
+        ResultObj->SetStringField(
+            TEXT("error"),
+            EnableErrorText.IsEmpty() ? TEXT("启用 Live Coding 失败") : EnableErrorText
+        );
+    }
+
+    return ResultObj;
+#endif
+}
+
+/**
+ * @brief 触发一次 Live Coding 编译。
+ * @param [in] Params 编译参数（支持 wait_for_completion/show_console）。
+ * @return TSharedPtr<FJsonObject> 编译请求结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCompileLiveCoding(const TSharedPtr<FJsonObject>& Params)
+{
+#if !PLATFORM_WINDOWS
+    return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Live Coding 仅支持 Windows 编辑器"));
+#else
+    FString ErrorMessage;
+    ILiveCodingModule* LiveCodingModule = UnrealMCPEditorCommandsPrivate::LoadLiveCodingModule(ErrorMessage);
+    if (!LiveCodingModule)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    bool bWaitForCompletion = false;
+    bool bShowConsole = true;
+    if (Params.IsValid())
+    {
+        Params->TryGetBoolField(TEXT("wait_for_completion"), bWaitForCompletion);
+        Params->TryGetBoolField(TEXT("show_console"), bShowConsole);
+    }
+
+    if (bShowConsole)
+    {
+        LiveCodingModule->ShowConsole();
+    }
+
+    ELiveCodingCompileFlags CompileFlags = ELiveCodingCompileFlags::None;
+    if (bWaitForCompletion)
+    {
+        CompileFlags |= ELiveCodingCompileFlags::WaitForCompletion;
+    }
+
+    ELiveCodingCompileResult CompileResult = ELiveCodingCompileResult::Failure;
+    const bool bCompileRequestAccepted = LiveCodingModule->Compile(CompileFlags, &CompileResult);
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), bCompileRequestAccepted);
+    ResultObj->SetBoolField(TEXT("wait_for_completion"), bWaitForCompletion);
+    ResultObj->SetBoolField(TEXT("show_console"), bShowConsole);
+    ResultObj->SetStringField(
+        TEXT("compile_result"),
+        UnrealMCPEditorCommandsPrivate::LiveCodingCompileResultToString(CompileResult)
+    );
+    UnrealMCPEditorCommandsPrivate::AppendLiveCodingState(ResultObj, *LiveCodingModule);
+
+    if (!bCompileRequestAccepted)
+    {
+        const FString EnableErrorText = ResultObj->GetStringField(TEXT("enable_error"));
+        ResultObj->SetStringField(
+            TEXT("error"),
+            EnableErrorText.IsEmpty() ? TEXT("Live Coding 编译请求失败") : EnableErrorText
+        );
+    }
+
+    return ResultObj;
+#endif
+}
+
+/**
+ * @brief 查询 Live Coding 的当前状态。
+ * @param [in] Params 查询参数（当前未使用）。
+ * @return TSharedPtr<FJsonObject> 状态结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetLiveCodingState(const TSharedPtr<FJsonObject>& Params)
+{
+#if !PLATFORM_WINDOWS
+    return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Live Coding 仅支持 Windows 编辑器"));
+#else
+    FString ErrorMessage;
+    ILiveCodingModule* LiveCodingModule = UnrealMCPEditorCommandsPrivate::LoadLiveCodingModule(ErrorMessage);
+    if (!LiveCodingModule)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    UnrealMCPEditorCommandsPrivate::AppendLiveCodingState(ResultObj, *LiveCodingModule);
+    return ResultObj;
+#endif
+}
+
+/**
  * @brief 获取当前关卡的全部 Actor。
  * @param [in] Params 查询参数（支持 include_components/detailed_components/world_type）。
  * @return TSharedPtr<FJsonObject> Actor 列表。
@@ -704,6 +934,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnActor(const TShared
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'type' parameter"));
     }
+    ActorType = ActorType.TrimStartAndEnd();
 
     // Get actor name (required parameter)
     FString ActorName;
@@ -753,7 +984,7 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnActor(const TShared
     FActorSpawnParameters SpawnParams;
     SpawnParams.Name = *ActorName;
 
-    if (ActorType == TEXT("StaticMeshActor"))
+    if (ActorType.Equals(TEXT("StaticMeshActor"), ESearchCase::IgnoreCase))
     {
         NewActor = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), Location, Rotation, SpawnParams);
         if (NewActor && Params->HasField(TEXT("static_mesh")))
@@ -775,19 +1006,19 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnActor(const TShared
             }
         }
     }
-    else if (ActorType == TEXT("PointLight"))
+    else if (ActorType.Equals(TEXT("PointLight"), ESearchCase::IgnoreCase))
     {
         NewActor = World->SpawnActor<APointLight>(APointLight::StaticClass(), Location, Rotation, SpawnParams);
     }
-    else if (ActorType == TEXT("SpotLight"))
+    else if (ActorType.Equals(TEXT("SpotLight"), ESearchCase::IgnoreCase))
     {
         NewActor = World->SpawnActor<ASpotLight>(ASpotLight::StaticClass(), Location, Rotation, SpawnParams);
     }
-    else if (ActorType == TEXT("DirectionalLight"))
+    else if (ActorType.Equals(TEXT("DirectionalLight"), ESearchCase::IgnoreCase))
     {
         NewActor = World->SpawnActor<ADirectionalLight>(ADirectionalLight::StaticClass(), Location, Rotation, SpawnParams);
     }
-    else if (ActorType == TEXT("CameraActor"))
+    else if (ActorType.Equals(TEXT("CameraActor"), ESearchCase::IgnoreCase))
     {
         NewActor = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(), Location, Rotation, SpawnParams);
     }

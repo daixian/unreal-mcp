@@ -67,6 +67,11 @@ public class UnrealMCP : ModuleRules
 					"UMGEditor"           // For WidgetBlueprint.h and other UMG editor functionality
 				}
 			);
+
+			if (Target.Platform == UnrealTargetPlatform.Win64)
+			{
+				PrivateDependencyModuleNames.Add("LiveCoding");
+			}
 		}
 		
 		DynamicallyLoadedModuleNames.AddRange(

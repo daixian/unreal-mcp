@@ -297,9 +297,9 @@ def info():
     - `bind_widget_event(widget_name, widget_component_name, event_name, function_name="")`
       Bind events like OnClicked to functions
     - `add_widget_to_viewport(widget_name, z_order=0)`
-      Add widget instance to game viewport
+      Add widget instance to game viewport during PIE
     - `set_text_block_binding(widget_name, text_block_name, binding_property, binding_type="Text")`
-      Set up dynamic property binding for text blocks
+      Set up dynamic property binding for text blocks, binding_type supports Text/Visibility/ColorAndOpacity/ShadowColorAndOpacity/ToolTipText/IsEnabled
 
     ## Editor Tools
     ### Viewport and Screenshots
@@ -308,6 +308,9 @@ def info():
     - `start_pie(simulate=False)` - Start Play-In-Editor session
     - `stop_pie()` - Stop current Play-In-Editor session
     - `get_play_state()` - Query current Play-In-Editor running state
+    - `start_live_coding(show_console=True)` - Enable Live Coding for current editor session
+    - `compile_live_coding(wait_for_completion=False, show_console=True)` - Trigger Live Coding compile
+    - `get_live_coding_state()` - Query current Live Coding session state
 
     ### Actor Management
     - `get_actors_in_level(include_components=False, detailed_components=True, world_type="auto")` - Return actor query result object for selected world (auto/editor/pie)
@@ -346,7 +349,7 @@ def info():
     - `add_blueprint_variable(blueprint_name, variable_name, variable_type)` - Add variables
     - `add_blueprint_get_self_component_reference(blueprint_name, component_name)` - Add component refs
     - `add_blueprint_self_reference(blueprint_name)` - Add self references
-    - `find_blueprint_nodes(blueprint_name, node_type, event_type)` - Find nodes
+    - `find_blueprint_nodes(blueprint_name, node_type=None, event_type=None)` - Find nodes, supports Event/Function/Variable/InputAction/All
     
     ## Project Tools
     - `create_input_mapping(action_name, key, input_type)` - Create input mappings

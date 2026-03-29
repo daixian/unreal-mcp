@@ -267,6 +267,9 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("start_pie") ||
                      CommandType == TEXT("stop_pie") ||
                      CommandType == TEXT("get_play_state") ||
+                     CommandType == TEXT("start_live_coding") ||
+                     CommandType == TEXT("compile_live_coding") ||
+                     CommandType == TEXT("get_live_coding_state") ||
                      CommandType == TEXT("find_actors_by_name") ||
                      CommandType == TEXT("spawn_actor") ||
                      CommandType == TEXT("create_actor") ||

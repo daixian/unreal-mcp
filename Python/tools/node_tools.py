@@ -401,11 +401,12 @@ def register_blueprint_node_tools(mcp: FastMCP):
         from unreal_mcp_server import get_unreal_connection
         
         try:
-            params = {
-                "blueprint_name": blueprint_name,
-                "node_type": node_type,
-                "event_type": event_type
-            }
+            params = {"blueprint_name": blueprint_name}
+            if node_type:
+                params["node_type"] = node_type
+            if event_type:
+                params["event_name"] = event_type
+                params["event_type"] = event_type
             
             unreal = get_unreal_connection()
             if not unreal:

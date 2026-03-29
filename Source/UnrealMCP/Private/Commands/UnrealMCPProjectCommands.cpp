@@ -37,9 +37,8 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCommand(const FString& 
  */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCreateInputMapping(const TSharedPtr<FJsonObject>& Params)
 {
-    // Get required parameters
-    FString ActionName;
-    if (!Params->TryGetStringField(TEXT("action_name"), ActionName))
+    FString MappingName;
+    if (!Params->TryGetStringField(TEXT("action_name"), MappingName))
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'action_name' parameter"));
     }
@@ -57,35 +56,53 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCreateInputMapping(cons
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to get input settings"));
     }
 
-    // Create the input action mapping
-    FInputActionKeyMapping ActionMapping;
-    ActionMapping.ActionName = FName(*ActionName);
-    ActionMapping.Key = FKey(*Key);
+    FString InputType = TEXT("Action");
+    Params->TryGetStringField(TEXT("input_type"), InputType);
+    const bool bIsAxisMapping = InputType.Equals(TEXT("Axis"), ESearchCase::IgnoreCase);
 
-    // Add modifiers if provided
-    if (Params->HasField(TEXT("shift")))
+    if (bIsAxisMapping)
     {
-        ActionMapping.bShift = Params->GetBoolField(TEXT("shift"));
+        float Scale = 1.0f;
+        Params->TryGetNumberField(TEXT("scale"), Scale);
+
+        FInputAxisKeyMapping AxisMapping;
+        AxisMapping.AxisName = FName(*MappingName);
+        AxisMapping.Key = FKey(*Key);
+        AxisMapping.Scale = Scale;
+
+        InputSettings->AddAxisMapping(AxisMapping);
     }
-    if (Params->HasField(TEXT("ctrl")))
+    else
     {
-        ActionMapping.bCtrl = Params->GetBoolField(TEXT("ctrl"));
-    }
-    if (Params->HasField(TEXT("alt")))
-    {
-        ActionMapping.bAlt = Params->GetBoolField(TEXT("alt"));
-    }
-    if (Params->HasField(TEXT("cmd")))
-    {
-        ActionMapping.bCmd = Params->GetBoolField(TEXT("cmd"));
+        FInputActionKeyMapping ActionMapping;
+        ActionMapping.ActionName = FName(*MappingName);
+        ActionMapping.Key = FKey(*Key);
+
+        if (Params->HasField(TEXT("shift")))
+        {
+            ActionMapping.bShift = Params->GetBoolField(TEXT("shift"));
+        }
+        if (Params->HasField(TEXT("ctrl")))
+        {
+            ActionMapping.bCtrl = Params->GetBoolField(TEXT("ctrl"));
+        }
+        if (Params->HasField(TEXT("alt")))
+        {
+            ActionMapping.bAlt = Params->GetBoolField(TEXT("alt"));
+        }
+        if (Params->HasField(TEXT("cmd")))
+        {
+            ActionMapping.bCmd = Params->GetBoolField(TEXT("cmd"));
+        }
+
+        InputSettings->AddActionMapping(ActionMapping);
     }
 
-    // Add the mapping
-    InputSettings->AddActionMapping(ActionMapping);
     InputSettings->SaveConfig();
 
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetStringField(TEXT("action_name"), ActionName);
+    ResultObj->SetStringField(TEXT("action_name"), MappingName);
     ResultObj->SetStringField(TEXT("key"), Key);
+    ResultObj->SetStringField(TEXT("input_type"), bIsAxisMapping ? TEXT("Axis") : TEXT("Action"));
     return ResultObj;
 } 

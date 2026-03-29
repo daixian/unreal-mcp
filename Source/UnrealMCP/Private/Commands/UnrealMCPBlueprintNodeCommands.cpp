@@ -1305,7 +1305,6 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintNodeCommands::HandleAddBlueprintSelfR
  */
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintNodeCommands::HandleFindBlueprintNodes(const TSharedPtr<FJsonObject>& Params)
 {
-    // Get required parameters
     FString BlueprintName;
     if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
     {
@@ -1313,53 +1312,119 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintNodeCommands::HandleFindBlueprintNode
     }
 
     FString NodeType;
-    if (!Params->TryGetStringField(TEXT("node_type"), NodeType))
+    Params->TryGetStringField(TEXT("node_type"), NodeType);
+
+    FString EventName;
+    if (!Params->TryGetStringField(TEXT("event_name"), EventName))
     {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'node_type' parameter"));
+        Params->TryGetStringField(TEXT("event_type"), EventName);
     }
 
-    // Find the blueprint
+    if (NodeType.IsEmpty())
+    {
+        NodeType = EventName.IsEmpty() ? TEXT("All") : TEXT("Event");
+    }
+
     UBlueprint* Blueprint = FUnrealMCPCommonUtils::FindBlueprint(BlueprintName);
     if (!Blueprint)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintName));
     }
 
-    // Get the event graph
     UEdGraph* EventGraph = FUnrealMCPCommonUtils::FindOrCreateEventGraph(Blueprint);
     if (!EventGraph)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to get event graph"));
     }
 
-    // Create a JSON array for the node GUIDs
     TArray<TSharedPtr<FJsonValue>> NodeGuidArray;
-    
-    // Filter nodes by the exact requested type
-    if (NodeType == TEXT("Event"))
+
+    const auto AddNodeGuid = [&NodeGuidArray](UEdGraphNode* Node)
     {
-        FString EventName;
-        if (!Params->TryGetStringField(TEXT("event_name"), EventName))
+        if (Node)
         {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'event_name' parameter for Event node search"));
+            NodeGuidArray.Add(MakeShared<FJsonValueString>(Node->NodeGuid.ToString()));
         }
-        
-        // Look for nodes with exact event name (e.g., ReceiveBeginPlay)
+    };
+
+    const bool bFilterEventName = !EventName.IsEmpty();
+    const FString ReceiveEventName = EventName.StartsWith(TEXT("Receive")) ? EventName : FString(TEXT("Receive")) + EventName;
+
+    if (NodeType.Equals(TEXT("All"), ESearchCase::IgnoreCase))
+    {
+        for (UEdGraphNode* Node : EventGraph->Nodes)
+        {
+            AddNodeGuid(Node);
+        }
+    }
+    else if (NodeType.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
+    {
         for (UEdGraphNode* Node : EventGraph->Nodes)
         {
             UK2Node_Event* EventNode = Cast<UK2Node_Event>(Node);
-            if (EventNode && EventNode->EventReference.GetMemberName() == FName(*EventName))
+            if (!EventNode)
             {
-                UE_LOG(LogTemp, Display, TEXT("Found event node with name %s: %s"), *EventName, *EventNode->NodeGuid.ToString());
-                NodeGuidArray.Add(MakeShared<FJsonValueString>(EventNode->NodeGuid.ToString()));
+                continue;
+            }
+
+            if (!bFilterEventName)
+            {
+                AddNodeGuid(EventNode);
+                continue;
+            }
+
+            const FString MemberName = EventNode->EventReference.GetMemberName().ToString();
+            const FString CustomFunctionName = EventNode->CustomFunctionName.ToString();
+            if (MemberName == EventName || MemberName == ReceiveEventName ||
+                CustomFunctionName == EventName || CustomFunctionName == ReceiveEventName)
+            {
+                AddNodeGuid(EventNode);
             }
         }
     }
-    // Add other node types as needed (InputAction, etc.)
+    else if (NodeType.Equals(TEXT("Function"), ESearchCase::IgnoreCase))
+    {
+        for (UEdGraphNode* Node : EventGraph->Nodes)
+        {
+            if (Cast<UK2Node_CallFunction>(Node))
+            {
+                AddNodeGuid(Node);
+            }
+        }
+    }
+    else if (NodeType.Equals(TEXT("Variable"), ESearchCase::IgnoreCase))
+    {
+        for (UEdGraphNode* Node : EventGraph->Nodes)
+        {
+            if (Cast<UK2Node_VariableGet>(Node) || Cast<UK2Node_VariableSet>(Node))
+            {
+                AddNodeGuid(Node);
+            }
+        }
+    }
+    else if (NodeType.Equals(TEXT("InputAction"), ESearchCase::IgnoreCase))
+    {
+        for (UEdGraphNode* Node : EventGraph->Nodes)
+        {
+            if (Cast<UK2Node_InputAction>(Node))
+            {
+                AddNodeGuid(Node);
+            }
+        }
+    }
+    else
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Unsupported 'node_type': %s"), *NodeType));
+    }
     
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetArrayField(TEXT("node_guids"), NodeGuidArray);
-    
+    ResultObj->SetStringField(TEXT("node_type"), NodeType);
+    if (!EventName.IsEmpty())
+    {
+        ResultObj->SetStringField(TEXT("event_name"), EventName);
+    }
     return ResultObj;
 }
 
