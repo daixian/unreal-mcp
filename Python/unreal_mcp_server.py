@@ -32,6 +32,7 @@ LIVE_CODING_WAIT_TIMEOUT_SECONDS = 120.0
 LIVE_CODING_STATE_FALLBACK_TIMEOUT_SECONDS = 5.0
 LIVE_CODING_STATE_FALLBACK_POLL_SECONDS = 15.0
 LIVE_CODING_STATE_FALLBACK_POLL_INTERVAL_SECONDS = 0.5
+BLUEPRINT_COMMAND_TIMEOUT_SECONDS = 20.0
 
 class UnrealConnection:
     """Connection to an Unreal Engine instance."""
@@ -102,17 +103,18 @@ class UnrealConnection:
                     break
                 chunks.append(chunk)
                 
-                # Process the data received so far
                 data = b''.join(chunks)
-                decoded_data = data.decode('utf-8')
-                
-                # Try to parse as JSON to check if complete
+                try:
+                    decoded_data = data.decode('utf-8')
+                except UnicodeDecodeError:
+                    logger.debug("Received partial UTF-8 response chunk, waiting for more data...")
+                    continue
+
                 try:
                     json.loads(decoded_data)
                     logger.info(f"Received complete response ({len(data)} bytes)")
                     return data
                 except json.JSONDecodeError:
-                    # Not complete JSON yet, continue reading
                     logger.debug(f"Received partial response, waiting for more data...")
                     continue
                 except Exception as e:
@@ -121,13 +123,15 @@ class UnrealConnection:
         except socket.timeout:
             logger.warning(f"Socket timeout during receive after {timeout_seconds:.1f}s")
             if chunks:
-                # If we have some data already, try to use it
                 data = b''.join(chunks)
                 try:
-                    json.loads(data.decode('utf-8'))
+                    decoded_data = data.decode('utf-8')
+                    json.loads(decoded_data)
                     logger.info(f"Using partial response after timeout ({len(data)} bytes)")
                     return data
-                except:
+                except UnicodeDecodeError:
+                    logger.debug("Buffered response ended with incomplete UTF-8 sequence")
+                except Exception:
                     pass
             raise Exception(f"Timeout receiving Unreal response after {timeout_seconds:.1f}s")
         except Exception as e:
@@ -138,6 +142,16 @@ class UnrealConnection:
         """Resolve a command-specific response timeout."""
         if command == "compile_live_coding" and params.get("wait_for_completion"):
             return LIVE_CODING_WAIT_TIMEOUT_SECONDS
+        if command in {
+            "find_blueprint_nodes",
+            "describe_blueprint_node",
+            "spawn_blueprint_node",
+            "set_blueprint_pin_default",
+            "delete_blueprint_node",
+            "connect_blueprint_nodes",
+            "compile_blueprint"
+        }:
+            return BLUEPRINT_COMMAND_TIMEOUT_SECONDS
         return DEFAULT_SOCKET_TIMEOUT_SECONDS
 
     def _query_live_coding_state_after_timeout(self) -> Optional[Dict[str, Any]]:
@@ -285,23 +299,6 @@ def get_unreal_connection() -> Optional[UnrealConnection]:
             if not _unreal_connection.connect():
                 logger.warning("Could not connect to Unreal Engine")
                 _unreal_connection = None
-        else:
-            # Verify connection is still valid with a ping-like test
-            try:
-                # Simple test by sending an empty buffer to check if socket is still connected
-                _unreal_connection.socket.sendall(b'\x00')
-                logger.debug("Connection verified with ping test")
-            except Exception as e:
-                logger.warning(f"Existing connection failed: {e}")
-                _unreal_connection.disconnect()
-                _unreal_connection = None
-                # Try to reconnect
-                _unreal_connection = UnrealConnection()
-                if not _unreal_connection.connect():
-                    logger.warning("Could not reconnect to Unreal Engine")
-                    _unreal_connection = None
-                else:
-                    logger.info("Successfully reconnected to Unreal Engine")
         
         return _unreal_connection
     except Exception as e:
@@ -412,17 +409,22 @@ def info():
     - `get_asset_dependencies(asset_path="", object_path="", asset_name="", name="")` - Query detailed dependencies
     - `get_asset_referencers(asset_path="", object_path="", asset_name="", name="")` - Query detailed referencers
     - `get_asset_summary(asset_path="", object_path="", asset_name="", name="")` - Load asset and summarize by type
+    - `save_asset(asset_path="", object_path="", asset_name="", name="", only_if_dirty=False)` - Save an asset resolved by path or name
     - `get_blueprint_summary(asset_path="", object_path="", asset_name="", name="")` - Load Blueprint asset and summarize structure
     
     ## Blueprint Node Management
     - `add_blueprint_event_node(blueprint_name, event_type)` - Add event nodes
     - `add_blueprint_input_action_node(blueprint_name, action_name)` - Add input nodes
     - `add_blueprint_function_node(blueprint_name, target, function_name)` - Add function nodes
+    - `spawn_blueprint_node(blueprint_name, node_kind=None, node_class=None, ...)` - Spawn generic/special Blueprint nodes
+    - `describe_blueprint_node(blueprint_name, node_id)` - Inspect node details and pins
+    - `set_blueprint_pin_default(blueprint_name, node_id, pin_name, default_value=None, object_path=None)` - Set pin defaults
+    - `delete_blueprint_node(blueprint_name, node_id)` - Delete a Blueprint node
     - `connect_blueprint_nodes(blueprint_name, source_node_id, source_pin, target_node_id, target_pin)` - Connect nodes
     - `add_blueprint_variable(blueprint_name, variable_name, variable_type)` - Add variables
     - `add_blueprint_get_self_component_reference(blueprint_name, component_name)` - Add component refs
     - `add_blueprint_self_reference(blueprint_name)` - Add self references
-    - `find_blueprint_nodes(blueprint_name, node_type=None, event_type=None)` - Find nodes, supports Event/Function/Variable/InputAction/All
+    - `find_blueprint_nodes(blueprint_name, node_type=None, event_type=None, include_details=False)` - Find nodes, supports Event/Function/Variable/InputAction/All
     
     ## Project Tools
     - `create_input_mapping(action_name, key, input_type)` - Create input mappings

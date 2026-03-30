@@ -146,6 +146,24 @@ def register_asset_tools(mcp: FastMCP):
         return _send_asset_command("get_asset_summary", params)
 
     @mcp.tool()
+    def save_asset(
+        ctx: Context,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        only_if_dirty: bool = False
+    ) -> Dict[str, Any]:
+        """Save a loaded asset resolved by path, object path, or asset name."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        params["only_if_dirty"] = only_if_dirty
+        return _send_asset_command("save_asset", params)
+
+    @mcp.tool()
     def get_blueprint_summary(
         ctx: Context,
         asset_path: str = "",

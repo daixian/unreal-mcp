@@ -73,6 +73,34 @@ private:
     TSharedPtr<FJsonObject> HandleAddBlueprintSelfReference(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 以通用方式生成 Blueprint 图节点。
+     * @param [in] Params 节点生成参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleSpawnBlueprintNode(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 描述 Blueprint 图中的单个节点及其引脚。
+     * @param [in] Params 节点查询参数。
+     * @return TSharedPtr<FJsonObject> 查询结果。
+     */
+    TSharedPtr<FJsonObject> HandleDescribeBlueprintNode(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 设置 Blueprint 节点引脚默认值。
+     * @param [in] Params 默认值参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetBlueprintPinDefault(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 删除 Blueprint 图中的单个节点。
+     * @param [in] Params 节点删除参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleDeleteBlueprintNode(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 查找 Blueprint 图中的节点。
      * @param [in] Params 查询参数。
      * @return TSharedPtr<FJsonObject> 查询结果。

@@ -59,6 +59,13 @@ private:
     TSharedPtr<FJsonObject> HandleGetAssetSummary(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 保存资产。
+     * @param [in] Params 查询参数。
+     * @return TSharedPtr<FJsonObject> 保存结果。
+     */
+    TSharedPtr<FJsonObject> HandleSaveAsset(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 获取 Blueprint 资产摘要。
      * @param [in] Params 查询参数。
      * @return TSharedPtr<FJsonObject> Blueprint 摘要。

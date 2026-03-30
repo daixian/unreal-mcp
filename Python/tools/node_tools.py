@@ -385,7 +385,8 @@ def register_blueprint_node_tools(mcp: FastMCP):
         ctx: Context,
         blueprint_name: str,
         node_type = None,
-        event_type = None
+        event_type = None,
+        include_details: bool = False
     ) -> Dict[str, Any]:
         """
         Find nodes in a Blueprint's event graph.
@@ -407,6 +408,8 @@ def register_blueprint_node_tools(mcp: FastMCP):
             if event_type:
                 params["event_name"] = event_type
                 params["event_type"] = event_type
+            if include_details:
+                params["include_details"] = True
             
             unreal = get_unreal_connection()
             if not unreal:
@@ -425,6 +428,246 @@ def register_blueprint_node_tools(mcp: FastMCP):
             
         except Exception as e:
             error_msg = f"Error finding nodes: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def spawn_blueprint_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_kind: str = None,
+        node_class: str = None,
+        function_name: str = None,
+        target: str = None,
+        variable_name: str = None,
+        action_name: str = None,
+        component_name: str = None,
+        event_name: str = None,
+        class_name: str = None,
+        class_path: str = None,
+        widget_class: str = None,
+        params = None,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """
+        Spawn a Blueprint graph node using a generic node specification.
+
+        Args:
+            blueprint_name: Name of the target Blueprint
+            node_kind: Optional semantic node kind, such as event/function_call/self_variable_get/branch/create_widget
+            node_class: Optional graph node class name for reflective instantiation, such as K2Node_CreateWidget
+            function_name: Optional function name for function call nodes
+            target: Optional target class/component/self hint for function call nodes
+            variable_name: Optional variable name for variable get/set nodes
+            action_name: Optional action name for input action nodes
+            component_name: Optional component name for self component reference nodes
+            event_name: Optional event name for event nodes
+            class_name: Optional class name used by construct-object style nodes
+            class_path: Optional class object path used by construct-object style nodes
+            widget_class: Optional widget class name/path shortcut for create widget nodes
+            params: Optional input pin default map
+            node_position: Optional [X, Y] position in the graph
+
+        Returns:
+            Response containing node creation result
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            command_params = {
+                "blueprint_name": blueprint_name
+            }
+            if node_kind is not None:
+                command_params["node_kind"] = node_kind
+            if node_class is not None:
+                command_params["node_class"] = node_class
+            if function_name is not None:
+                command_params["function_name"] = function_name
+            if target is not None:
+                command_params["target"] = target
+            if variable_name is not None:
+                command_params["variable_name"] = variable_name
+            if action_name is not None:
+                command_params["action_name"] = action_name
+            if component_name is not None:
+                command_params["component_name"] = component_name
+            if event_name is not None:
+                command_params["event_name"] = event_name
+            if class_name is not None:
+                command_params["class_name"] = class_name
+            if class_path is not None:
+                command_params["class_path"] = class_path
+            if widget_class is not None:
+                command_params["widget_class"] = widget_class
+            if params is not None:
+                command_params["params"] = params
+            if node_position is None:
+                node_position = [0, 0]
+            command_params["node_position"] = node_position
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            logger.info(f"Spawning blueprint node in '{blueprint_name}' with kind='{node_kind}' class='{node_class}'")
+            response = unreal.send_command("spawn_blueprint_node", command_params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Spawn blueprint node response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error spawning blueprint node: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def describe_blueprint_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_id: str
+    ) -> Dict[str, Any]:
+        """
+        Describe a single Blueprint graph node and its pins.
+
+        Args:
+            blueprint_name: Name of the target Blueprint
+            node_id: GUID of the node to inspect
+
+        Returns:
+            Response containing node details and pin metadata
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "node_id": node_id
+            }
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            logger.info(f"Describing blueprint node '{node_id}' in '{blueprint_name}'")
+            response = unreal.send_command("describe_blueprint_node", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Describe blueprint node response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error describing blueprint node: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_blueprint_pin_default(
+        ctx: Context,
+        blueprint_name: str,
+        node_id: str,
+        pin_name: str,
+        default_value = None,
+        object_path: str = None,
+        pin_direction: str = "input"
+    ) -> Dict[str, Any]:
+        """
+        Set the default value of a Blueprint node pin.
+
+        Args:
+            blueprint_name: Name of the target Blueprint
+            node_id: GUID of the node to edit
+            pin_name: Name of the target pin
+            default_value: Optional scalar default value (string/number/bool)
+            object_path: Optional object/class path for object-like pins
+            pin_direction: input or output, defaults to input
+
+        Returns:
+            Response containing updated pin data
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "node_id": node_id,
+                "pin_name": pin_name,
+                "pin_direction": pin_direction
+            }
+            if default_value is not None:
+                params["default_value"] = default_value
+            if object_path is not None:
+                params["object_path"] = object_path
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            logger.info(f"Setting default for pin '{pin_name}' on node '{node_id}' in '{blueprint_name}'")
+            response = unreal.send_command("set_blueprint_pin_default", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Set blueprint pin default response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error setting blueprint pin default: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def delete_blueprint_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_id: str
+    ) -> Dict[str, Any]:
+        """
+        Delete a single Blueprint graph node.
+
+        Args:
+            blueprint_name: Name of the target Blueprint
+            node_id: GUID of the node to remove
+
+        Returns:
+            Response indicating whether the node was deleted
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "node_id": node_id
+            }
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            logger.info(f"Deleting blueprint node '{node_id}' in '{blueprint_name}'")
+            response = unreal.send_command("delete_blueprint_node", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Delete blueprint node response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error deleting blueprint node: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
     

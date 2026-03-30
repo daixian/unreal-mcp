@@ -233,7 +233,7 @@ UBlueprint* FUnrealMCPCommonUtils::FindBlueprintByName(const FString& BlueprintN
         return LoadObject<UBlueprint>(nullptr, *AssetPath);
     };
 
-    if (BlueprintName.StartsWith(TEXT("/Game")))
+    if (BlueprintName.StartsWith(TEXT("/")))
     {
         if (UBlueprint* Blueprint = TryLoadBlueprint(BlueprintName))
         {
@@ -256,6 +256,33 @@ UBlueprint* FUnrealMCPCommonUtils::FindBlueprintByName(const FString& BlueprintN
         return nullptr;
     }
 
+    FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+    TArray<FAssetData> BlueprintAssets;
+    AssetRegistryModule.Get().GetAssetsByClass(FTopLevelAssetPath(UBlueprint::StaticClass()), BlueprintAssets, true);
+
+    TArray<FAssetData> MatchedAssets;
+    for (const FAssetData& AssetData : BlueprintAssets)
+    {
+        const FString AssetName = AssetData.AssetName.ToString();
+        const FString PackageName = AssetData.PackageName.ToString();
+        const FString ObjectPath = AssetData.GetObjectPathString();
+
+        if (AssetName.Equals(BlueprintName, ESearchCase::IgnoreCase) ||
+            PackageName.Equals(BlueprintName, ESearchCase::IgnoreCase) ||
+            ObjectPath.Equals(BlueprintName, ESearchCase::IgnoreCase))
+        {
+            MatchedAssets.Add(AssetData);
+        }
+    }
+
+    if (MatchedAssets.Num() == 1)
+    {
+        if (UObject* LoadedObject = MatchedAssets[0].GetAsset())
+        {
+            return Cast<UBlueprint>(LoadedObject);
+        }
+    }
+
     if (UBlueprint* Blueprint = TryLoadBlueprint(TEXT("/Game/Blueprints/") + BlueprintName))
     {
         return Blueprint;
@@ -264,24 +291,6 @@ UBlueprint* FUnrealMCPCommonUtils::FindBlueprintByName(const FString& BlueprintN
     if (UBlueprint* Blueprint = TryLoadBlueprint(TEXT("/Game/Blueprints/") + BlueprintName + TEXT(".") + BlueprintName))
     {
         return Blueprint;
-    }
-
-    FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-    TArray<FAssetData> BlueprintAssets;
-    AssetRegistryModule.Get().GetAssetsByClass(FTopLevelAssetPath(UBlueprint::StaticClass()), BlueprintAssets, true);
-
-    for (const FAssetData& AssetData : BlueprintAssets)
-    {
-        const FString AssetName = AssetData.AssetName.ToString();
-        const FString ObjectPath = AssetData.GetObjectPathString();
-
-        if (AssetName == BlueprintName || ObjectPath == BlueprintName)
-        {
-            if (UObject* LoadedObject = AssetData.GetAsset())
-            {
-                return Cast<UBlueprint>(LoadedObject);
-            }
-        }
     }
 
     return nullptr;

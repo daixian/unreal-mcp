@@ -28,6 +28,7 @@
 #include "Misc/PackageName.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "EditorAssetLibrary.h"
 #include "Subsystems/EditorAssetSubsystem.h"
 #include "UObject/SoftObjectPtr.h"
 #include "UObject/UnrealType.h"
@@ -239,11 +240,15 @@ static bool ResolveAssetReference(const FString& AssetReference, FAssetData& Out
 
     if (UEditorAssetSubsystem* AssetSubsystem = GetAssetSubsystem())
     {
-        FAssetData AssetData = AssetSubsystem->FindAssetData(AssetReference);
-        if (AssetData.IsValid())
+        FAssetData AssetData;
+        if (AssetReference.StartsWith(TEXT("/")))
         {
-            OutAssetData = AssetData;
-            return true;
+            AssetData = AssetSubsystem->FindAssetData(AssetReference);
+            if (AssetData.IsValid())
+            {
+                OutAssetData = AssetData;
+                return true;
+            }
         }
 
         if (AssetReference.StartsWith(TEXT("/")) && !AssetReference.Contains(TEXT(".")))
@@ -648,6 +653,7 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCommand(const FString& Co
     if (CommandType == TEXT("get_asset_dependencies")) return HandleGetAssetDependencies(Params);
     if (CommandType == TEXT("get_asset_referencers")) return HandleGetAssetReferencers(Params);
     if (CommandType == TEXT("get_asset_summary")) return HandleGetAssetSummary(Params);
+    if (CommandType == TEXT("save_asset")) return HandleSaveAsset(Params);
     if (CommandType == TEXT("get_blueprint_summary")) return HandleGetBlueprintSummary(Params);
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown asset command: %s"), *CommandType));
 }
@@ -786,6 +792,42 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetAssetSummary(const TSh
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load asset: %s"), *AssetData.GetObjectPathString()));
     }
     return CreateAssetSummary(AssetObject, AssetData);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSaveAsset(const TSharedPtr<FJsonObject>& Params)
+{
+    FAssetData AssetData;
+    FString ErrorMessage;
+    if (!ResolveAssetDataFromParams(Params, AssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UObject* AssetObject = AssetData.GetAsset();
+    if (!AssetObject)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load asset: %s"), *AssetData.GetObjectPathString()));
+    }
+
+    const bool bOnlyIfDirty = Params->HasTypedField<EJson::Boolean>(TEXT("only_if_dirty"))
+        ? Params->GetBoolField(TEXT("only_if_dirty"))
+        : false;
+
+    const bool bIsDirty = AssetObject->GetOutermost() && AssetObject->GetOutermost()->IsDirty();
+    const bool bShouldSave = !bOnlyIfDirty || bIsDirty;
+    const bool bSaved = bShouldSave ? UEditorAssetLibrary::SaveLoadedAsset(AssetObject, false) : true;
+
+    if (!bSaved)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to save asset: %s"), *AssetData.GetObjectPathString()));
+    }
+
+    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
+    Result->SetBoolField(TEXT("saved"), true);
+    Result->SetBoolField(TEXT("was_dirty"), bIsDirty);
+    Result->SetBoolField(TEXT("only_if_dirty"), bOnlyIfDirty);
+    Result->SetBoolField(TEXT("save_attempted"), bShouldSave);
+    return Result;
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetBlueprintSummary(const TSharedPtr<FJsonObject>& Params)

@@ -286,15 +286,16 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                 ResultJson = EditorCommands->HandleCommand(CommandType, Params);
             }
             // Asset Commands
-            else if (CommandType == TEXT("search_assets") ||
+                else if (CommandType == TEXT("search_assets") ||
                      CommandType == TEXT("get_asset_metadata") ||
                      CommandType == TEXT("get_asset_dependencies") ||
                      CommandType == TEXT("get_asset_referencers") ||
+                     CommandType == TEXT("save_asset") ||
                      CommandType == TEXT("get_asset_summary") ||
                      CommandType == TEXT("get_blueprint_summary"))
-            {
+                {
                 ResultJson = AssetCommands->HandleCommand(CommandType, Params);
-            }
+                }
             // Blueprint Commands
             else if (CommandType == TEXT("create_blueprint") || 
                      CommandType == TEXT("add_component_to_blueprint") || 
@@ -313,6 +314,10 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
             else if (CommandType == TEXT("connect_blueprint_nodes") || 
                      CommandType == TEXT("add_blueprint_get_self_component_reference") ||
                      CommandType == TEXT("add_blueprint_self_reference") ||
+                     CommandType == TEXT("spawn_blueprint_node") ||
+                     CommandType == TEXT("describe_blueprint_node") ||
+                     CommandType == TEXT("set_blueprint_pin_default") ||
+                     CommandType == TEXT("delete_blueprint_node") ||
                      CommandType == TEXT("find_blueprint_nodes") ||
                      CommandType == TEXT("add_blueprint_event_node") ||
                      CommandType == TEXT("add_blueprint_input_action_node") ||
