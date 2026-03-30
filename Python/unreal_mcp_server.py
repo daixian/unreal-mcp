@@ -8,6 +8,7 @@ import logging
 import socket
 import sys
 import json
+import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Dict, Any, Optional
 from mcp.server.fastmcp import FastMCP
@@ -26,6 +27,11 @@ logger = logging.getLogger("UnrealMCP")
 # Configuration
 UNREAL_HOST = "127.0.0.1"
 UNREAL_PORT = 55557
+DEFAULT_SOCKET_TIMEOUT_SECONDS = 5.0
+LIVE_CODING_WAIT_TIMEOUT_SECONDS = 120.0
+LIVE_CODING_STATE_FALLBACK_TIMEOUT_SECONDS = 5.0
+LIVE_CODING_STATE_FALLBACK_POLL_SECONDS = 15.0
+LIVE_CODING_STATE_FALLBACK_POLL_INTERVAL_SECONDS = 0.5
 
 class UnrealConnection:
     """Connection to an Unreal Engine instance."""
@@ -35,7 +41,7 @@ class UnrealConnection:
         self.socket = None
         self.connected = False
     
-    def connect(self) -> bool:
+    def connect(self, timeout_seconds: float = DEFAULT_SOCKET_TIMEOUT_SECONDS) -> bool:
         """Connect to the Unreal Engine instance."""
         try:
             # Close any existing socket
@@ -48,7 +54,7 @@ class UnrealConnection:
             
             logger.info(f"Connecting to Unreal at {UNREAL_HOST}:{UNREAL_PORT}...")
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(5)  # 5 second timeout
+            self.socket.settimeout(timeout_seconds)
             
             # Set socket options for better stability
             self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -78,10 +84,15 @@ class UnrealConnection:
         self.socket = None
         self.connected = False
 
-    def receive_full_response(self, sock, buffer_size=4096) -> bytes:
+    def receive_full_response(
+        self,
+        sock,
+        buffer_size=4096,
+        timeout_seconds: float = DEFAULT_SOCKET_TIMEOUT_SECONDS
+    ) -> bytes:
         """Receive a complete response from Unreal, handling chunked data."""
         chunks = []
-        sock.settimeout(5)  # 5 second timeout
+        sock.settimeout(timeout_seconds)
         try:
             while True:
                 chunk = sock.recv(buffer_size)
@@ -108,7 +119,7 @@ class UnrealConnection:
                     logger.warning(f"Error processing response chunk: {str(e)}")
                     continue
         except socket.timeout:
-            logger.warning("Socket timeout during receive")
+            logger.warning(f"Socket timeout during receive after {timeout_seconds:.1f}s")
             if chunks:
                 # If we have some data already, try to use it
                 data = b''.join(chunks)
@@ -118,12 +129,50 @@ class UnrealConnection:
                     return data
                 except:
                     pass
-            raise Exception("Timeout receiving Unreal response")
+            raise Exception(f"Timeout receiving Unreal response after {timeout_seconds:.1f}s")
         except Exception as e:
             logger.error(f"Error during receive: {str(e)}")
             raise
+
+    def _get_response_timeout_seconds(self, command: str, params: Dict[str, Any]) -> float:
+        """Resolve a command-specific response timeout."""
+        if command == "compile_live_coding" and params.get("wait_for_completion"):
+            return LIVE_CODING_WAIT_TIMEOUT_SECONDS
+        return DEFAULT_SOCKET_TIMEOUT_SECONDS
+
+    def _query_live_coding_state_after_timeout(self) -> Optional[Dict[str, Any]]:
+        """Best-effort state query used when compile_live_coding timed out."""
+        deadline = time.monotonic() + LIVE_CODING_STATE_FALLBACK_POLL_SECONDS
+        last_response: Optional[Dict[str, Any]] = None
+
+        while time.monotonic() < deadline:
+            state_response = self.send_command(
+                "get_live_coding_state",
+                {},
+                response_timeout_seconds=LIVE_CODING_STATE_FALLBACK_TIMEOUT_SECONDS,
+                allow_live_coding_timeout_fallback=False
+            )
+            if not state_response:
+                time.sleep(LIVE_CODING_STATE_FALLBACK_POLL_INTERVAL_SECONDS)
+                continue
+
+            last_response = state_response
+            if state_response.get("status") == "success":
+                result = state_response.get("result", {})
+                if not result.get("is_compiling", False):
+                    return state_response
+
+            time.sleep(LIVE_CODING_STATE_FALLBACK_POLL_INTERVAL_SECONDS)
+
+        return last_response
     
-    def send_command(self, command: str, params: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def send_command(
+        self,
+        command: str,
+        params: Dict[str, Any] = None,
+        response_timeout_seconds: Optional[float] = None,
+        allow_live_coding_timeout_fallback: bool = True
+    ) -> Optional[Dict[str, Any]]:
         """Send a command to Unreal Engine and get the response."""
         # Always reconnect for each command, since Unreal closes the connection after each command
         # This is different from Unity which keeps connections alive
@@ -135,6 +184,11 @@ class UnrealConnection:
             self.socket = None
             self.connected = False
         
+        command_params = params or {}
+        timeout_seconds = response_timeout_seconds
+        if timeout_seconds is None:
+            timeout_seconds = self._get_response_timeout_seconds(command, command_params)
+
         if not self.connect():
             logger.error("Failed to connect to Unreal Engine for command")
             return None
@@ -143,7 +197,7 @@ class UnrealConnection:
             # Match Unity's command format exactly
             command_obj = {
                 "type": command,  # Use "type" instead of "command"
-                "params": params or {}  # Use Unity's params or {} pattern
+                "params": command_params  # Use Unity's params or {} pattern
             }
             
             # Send without newline, exactly like Unity
@@ -152,7 +206,10 @@ class UnrealConnection:
             self.socket.sendall(command_json.encode('utf-8'))
             
             # Read response using improved handler
-            response_data = self.receive_full_response(self.socket)
+            response_data = self.receive_full_response(
+                self.socket,
+                timeout_seconds=timeout_seconds
+            )
             response = json.loads(response_data.decode('utf-8'))
             
             # Log complete response for debugging
@@ -188,6 +245,22 @@ class UnrealConnection:
             
         except Exception as e:
             logger.error(f"Error sending command: {e}")
+            error_message = str(e)
+
+            if (allow_live_coding_timeout_fallback and
+                command == "compile_live_coding" and
+                command_params.get("wait_for_completion") and
+                "Timeout receiving Unreal response" in error_message):
+                live_coding_state = self._query_live_coding_state_after_timeout()
+                response: Dict[str, Any] = {
+                    "status": "error",
+                    "error": error_message,
+                    "timed_out_waiting_for_response": True
+                }
+                if live_coding_state is not None:
+                    response["live_coding_state"] = live_coding_state.get("result", live_coding_state)
+                return response
+
             # Always reset connection state on any error
             self.connected = False
             try:
