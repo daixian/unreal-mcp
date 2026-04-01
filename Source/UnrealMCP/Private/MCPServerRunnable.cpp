@@ -18,6 +18,34 @@
 /** @brief 接收缓冲区大小（字节）。 */
 constexpr int32 MCPReceiveBufferSize = 8192;
 
+static bool SendUtf8Message(const TSharedPtr<FSocket>& Socket, const FString& Message)
+{
+    if (!Socket.IsValid())
+    {
+        return false;
+    }
+
+    FTCHARToUTF8 MessageUtf8(*Message);
+    const uint8* Data = reinterpret_cast<const uint8*>(MessageUtf8.Get());
+    const int32 TotalBytes = MessageUtf8.Length();
+    int32 TotalSent = 0;
+
+    while (TotalSent < TotalBytes)
+    {
+        int32 BytesSent = 0;
+        if (!Socket->Send(Data + TotalSent, TotalBytes - TotalSent, BytesSent) || BytesSent <= 0)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: 发送响应失败，已发送 %d/%d 字节"), TotalSent, TotalBytes);
+            return false;
+        }
+
+        TotalSent += BytesSent;
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 响应发送完成，字节数: %d"), TotalSent);
+    return true;
+}
+
 /**
  * @brief 构造函数。
  * @param [in] InBridge 命令执行桥接对象。
@@ -111,13 +139,9 @@ uint32 FMCPServerRunnable::Run()
                                 UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Sending response: %s"), *Response);
                                 
                                 // Send response
-                                int32 BytesSent = 0;
-                                if (!ClientSocket->Send((uint8*)TCHAR_TO_UTF8(*Response), Response.Len(), BytesSent))
+                                if (!SendUtf8Message(ClientSocket, Response))
                                 {
                                     UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: Failed to send response"));
-                                }
-                                else {
-                                    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Response sent successfully, bytes: %d"), BytesSent);
                                 }
                             }
                             else
@@ -346,11 +370,9 @@ void FMCPServerRunnable::ProcessMessage(TSharedPtr<FSocket> Client, const FStrin
     
     // Send response with newline terminator
     Response += TEXT("\n");
-    int32 BytesSent = 0;
-    
     UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Sending response: %s"), *Response);
     
-    if (!Client->Send((uint8*)TCHAR_TO_UTF8(*Response), Response.Len(), BytesSent))
+    if (!SendUtf8Message(Client, Response))
     {
         UE_LOG(LogTemp, Error, TEXT("MCPServerRunnable: Failed to send response"));
     }

@@ -10,7 +10,11 @@
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Animation/WidgetAnimation.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/Button.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/PanelWidget.h"
+#include "Components/TextBlock.h"
+#include "Components/Widget.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraphSchema_K2.h"
 #include "Editor.h"
@@ -437,7 +441,157 @@ static void AddWhitelistedProperties(UObject* Object, const TSharedPtr<FJsonObje
     }
 }
 
-static void CollectWidgetTree(UWidget* Widget, const FString& ParentName, int32 Depth, int32 MaxCount, int32& InOutCount, TArray<TSharedPtr<FJsonValue>>& OutValues)
+static TArray<TSharedPtr<FJsonValue>> CreateVector2DArray(const FVector2D& Value)
+{
+    return TArray<TSharedPtr<FJsonValue>>
+    {
+        MakeShared<FJsonValueNumber>(Value.X),
+        MakeShared<FJsonValueNumber>(Value.Y)
+    };
+}
+
+static TArray<TSharedPtr<FJsonValue>> CreateLinearColorArray(const FLinearColor& Value)
+{
+    return TArray<TSharedPtr<FJsonValue>>
+    {
+        MakeShared<FJsonValueNumber>(Value.R),
+        MakeShared<FJsonValueNumber>(Value.G),
+        MakeShared<FJsonValueNumber>(Value.B),
+        MakeShared<FJsonValueNumber>(Value.A)
+    };
+}
+
+static TSharedPtr<FJsonObject> CreateMarginObject(const FMargin& Value)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetNumberField(TEXT("left"), Value.Left);
+    Result->SetNumberField(TEXT("top"), Value.Top);
+    Result->SetNumberField(TEXT("right"), Value.Right);
+    Result->SetNumberField(TEXT("bottom"), Value.Bottom);
+    return Result;
+}
+
+static TSharedPtr<FJsonObject> CreateAnchorsObject(const FAnchors& Value)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetArrayField(TEXT("minimum"), CreateVector2DArray(Value.Minimum));
+    Result->SetArrayField(TEXT("maximum"), CreateVector2DArray(Value.Maximum));
+    return Result;
+}
+
+static TSharedPtr<FJsonObject> CreateRenderTransformObject(const FWidgetTransform& Value)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetArrayField(TEXT("translation"), CreateVector2DArray(Value.Translation));
+    Result->SetArrayField(TEXT("scale"), CreateVector2DArray(Value.Scale));
+    Result->SetArrayField(TEXT("shear"), CreateVector2DArray(Value.Shear));
+    Result->SetNumberField(TEXT("angle"), Value.Angle);
+    return Result;
+}
+
+static FString GetEnumValueName(const UEnum* Enum, int64 Value)
+{
+    return Enum ? Enum->GetNameStringByValue(Value) : FString();
+}
+
+static void AddWidgetSlotData(UWidget* Widget, const TSharedPtr<FJsonObject>& Item)
+{
+    if (!Widget || !Item.IsValid())
+    {
+        return;
+    }
+
+    if (UPanelSlot* Slot = Widget->Slot)
+    {
+        Item->SetStringField(TEXT("slot_class"), Slot->GetClass()->GetName());
+
+        TSharedPtr<FJsonObject> SlotObject = MakeShared<FJsonObject>();
+        if (const UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Slot))
+        {
+            SlotObject->SetStringField(TEXT("type"), TEXT("CanvasPanelSlot"));
+            SlotObject->SetArrayField(TEXT("position"), CreateVector2DArray(CanvasSlot->GetPosition()));
+            SlotObject->SetArrayField(TEXT("size"), CreateVector2DArray(CanvasSlot->GetSize()));
+            SlotObject->SetObjectField(TEXT("offsets"), CreateMarginObject(CanvasSlot->GetOffsets()));
+            SlotObject->SetObjectField(TEXT("anchors"), CreateAnchorsObject(CanvasSlot->GetAnchors()));
+            SlotObject->SetArrayField(TEXT("alignment"), CreateVector2DArray(CanvasSlot->GetAlignment()));
+            SlotObject->SetBoolField(TEXT("auto_size"), CanvasSlot->GetAutoSize());
+            SlotObject->SetNumberField(TEXT("z_order"), CanvasSlot->GetZOrder());
+        }
+        else
+        {
+            SlotObject->SetStringField(TEXT("type"), Slot->GetClass()->GetName());
+        }
+
+        Item->SetObjectField(TEXT("slot"), SlotObject);
+    }
+}
+
+static void AddWidgetCommonData(UWidget* Widget, const TSharedPtr<FJsonObject>& Item)
+{
+    if (!Widget || !Item.IsValid())
+    {
+        return;
+    }
+
+    Item->SetBoolField(TEXT("is_enabled"), Widget->GetIsEnabled());
+    Item->SetStringField(
+        TEXT("visibility"),
+        GetEnumValueName(StaticEnum<ESlateVisibility>(), static_cast<int64>(Widget->GetVisibility())));
+    Item->SetNumberField(TEXT("render_opacity"), Widget->GetRenderOpacity());
+    Item->SetObjectField(TEXT("render_transform"), CreateRenderTransformObject(Widget->GetRenderTransform()));
+    Item->SetArrayField(TEXT("render_transform_pivot"), CreateVector2DArray(Widget->GetRenderTransformPivot()));
+    Item->SetStringField(TEXT("tooltip_text"), Widget->GetToolTipText().ToString());
+    Item->SetStringField(
+        TEXT("clipping"),
+        GetEnumValueName(StaticEnum<EWidgetClipping>(), static_cast<int64>(Widget->GetClipping())));
+    Item->SetStringField(
+        TEXT("flow_direction_preference"),
+        GetEnumValueName(StaticEnum<EFlowDirectionPreference>(), static_cast<int64>(Widget->GetFlowDirectionPreference())));
+}
+
+static void AddWidgetSpecificData(UWidget* Widget, const TSharedPtr<FJsonObject>& Item)
+{
+    if (!Widget || !Item.IsValid())
+    {
+        return;
+    }
+
+    if (const UPanelWidget* PanelWidget = Cast<UPanelWidget>(Widget))
+    {
+        Item->SetNumberField(TEXT("children_count"), PanelWidget->GetChildrenCount());
+    }
+
+    if (const UTextBlock* TextBlock = Cast<UTextBlock>(Widget))
+    {
+        TSharedPtr<FJsonObject> Details = MakeShared<FJsonObject>();
+        Details->SetStringField(TEXT("text"), TextBlock->GetText().ToString());
+        Details->SetArrayField(TEXT("color_and_opacity"), CreateLinearColorArray(TextBlock->GetColorAndOpacity().GetSpecifiedColor()));
+        Details->SetNumberField(TEXT("font_size"), TextBlock->GetFont().Size);
+        Details->SetNumberField(TEXT("min_desired_width"), TextBlock->GetMinDesiredWidth());
+        Item->SetObjectField(TEXT("details"), Details);
+        return;
+    }
+
+    if (const UButton* Button = Cast<UButton>(Widget))
+    {
+        TSharedPtr<FJsonObject> Details = MakeShared<FJsonObject>();
+        Details->SetArrayField(TEXT("color_and_opacity"), CreateLinearColorArray(Button->GetColorAndOpacity()));
+        Details->SetArrayField(TEXT("background_color"), CreateLinearColorArray(Button->GetBackgroundColor()));
+        Details->SetStringField(
+            TEXT("click_method"),
+            GetEnumValueName(StaticEnum<EButtonClickMethod::Type>(), static_cast<int64>(Button->GetClickMethod())));
+        Details->SetStringField(
+            TEXT("touch_method"),
+            GetEnumValueName(StaticEnum<EButtonTouchMethod::Type>(), static_cast<int64>(Button->GetTouchMethod())));
+        Details->SetStringField(
+            TEXT("press_method"),
+            GetEnumValueName(StaticEnum<EButtonPressMethod::Type>(), static_cast<int64>(Button->GetPressMethod())));
+        Details->SetBoolField(TEXT("is_focusable"), Button->GetIsFocusable());
+        Item->SetObjectField(TEXT("details"), Details);
+    }
+}
+
+static void CollectWidgetTree(UWidget* Widget, const FString& ParentName, int32 Depth, int32 ChildIndex, int32 MaxCount, int32& InOutCount, TArray<TSharedPtr<FJsonValue>>& OutValues)
 {
     if (!Widget || InOutCount >= MaxCount)
     {
@@ -449,14 +603,18 @@ static void CollectWidgetTree(UWidget* Widget, const FString& ParentName, int32 
     Item->SetStringField(TEXT("class"), Widget->GetClass()->GetName());
     Item->SetStringField(TEXT("parent"), ParentName);
     Item->SetNumberField(TEXT("depth"), Depth);
+    Item->SetNumberField(TEXT("child_index"), ChildIndex);
+    AddWidgetCommonData(Widget, Item);
+    AddWidgetSlotData(Widget, Item);
+    AddWidgetSpecificData(Widget, Item);
     OutValues.Add(MakeShared<FJsonValueObject>(Item));
     ++InOutCount;
 
     if (UPanelWidget* PanelWidget = Cast<UPanelWidget>(Widget))
     {
-        for (int32 ChildIndex = 0; ChildIndex < PanelWidget->GetChildrenCount(); ++ChildIndex)
+        for (int32 LocalChildIndex = 0; LocalChildIndex < PanelWidget->GetChildrenCount(); ++LocalChildIndex)
         {
-            CollectWidgetTree(PanelWidget->GetChildAt(ChildIndex), Widget->GetName(), Depth + 1, MaxCount, InOutCount, OutValues);
+            CollectWidgetTree(PanelWidget->GetChildAt(LocalChildIndex), Widget->GetName(), Depth + 1, LocalChildIndex, MaxCount, InOutCount, OutValues);
         }
     }
 }
@@ -537,7 +695,7 @@ static TSharedPtr<FJsonObject> CreateBlueprintSummary(UBlueprint* Blueprint, con
         int32 WidgetCount = 0;
         if (WidgetBlueprint->WidgetTree && WidgetBlueprint->WidgetTree->RootWidget)
         {
-            CollectWidgetTree(WidgetBlueprint->WidgetTree->RootWidget, FString(), 0, 256, WidgetCount, WidgetTree);
+            CollectWidgetTree(WidgetBlueprint->WidgetTree->RootWidget, FString(), 0, -1, 256, WidgetCount, WidgetTree);
         }
         Result->SetArrayField(TEXT("widget_tree"), WidgetTree);
 
