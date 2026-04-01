@@ -386,6 +386,10 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     {
         return HandleStartPIE(Params);
     }
+    else if (CommandType == TEXT("start_vr_preview"))
+    {
+        return HandleStartVRPreview(Params);
+    }
     else if (CommandType == TEXT("stop_pie"))
     {
         return HandleStopPIE(Params);
@@ -644,6 +648,47 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleStartPIE(const TSharedPt
 }
 
 /**
+ * @brief 启动 VR Preview 会话。
+ * @param [in] Params 启动参数（当前预留扩展）。
+ * @return TSharedPtr<FJsonObject> 启动结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleStartVRPreview(const TSharedPtr<FJsonObject>& Params)
+{
+    if (!GEditor)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Editor instance is not available"));
+    }
+
+    if (GEditor->PlayWorld || GEditor->IsPlaySessionRequestQueued())
+    {
+        TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+        ResultObj->SetBoolField(TEXT("success"), true);
+        ResultObj->SetBoolField(TEXT("already_playing"), true);
+        ResultObj->SetBoolField(TEXT("is_vr_preview"), GEditor->IsVRPreviewActive());
+        ResultObj->SetStringField(TEXT("message"), TEXT("VR Preview 已在运行或已排队"));
+        if (GEditor->PlayWorld)
+        {
+            UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, GEditor->PlayWorld, TEXT("pie"));
+        }
+        return ResultObj;
+    }
+
+    FRequestPlaySessionParams PlaySessionParams;
+    PlaySessionParams.SessionPreviewTypeOverride = EPlaySessionPreviewType::VRPreview;
+
+    GEditor->RequestPlaySession(PlaySessionParams);
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetBoolField(TEXT("success"), true);
+    ResultObj->SetBoolField(TEXT("already_playing"), false);
+    ResultObj->SetBoolField(TEXT("play_world_available"), GEditor->PlayWorld != nullptr);
+    ResultObj->SetBoolField(TEXT("request_queued"), GEditor->IsPlaySessionRequestQueued());
+    ResultObj->SetBoolField(TEXT("is_vr_preview"), GEditor->IsVRPreviewActive());
+    ResultObj->SetStringField(TEXT("message"), TEXT("VR Preview start requested"));
+    return ResultObj;
+}
+
+/**
  * @brief 停止当前 PIE 会话。
  * @param [in] Params 停止参数（当前未使用）。
  * @return TSharedPtr<FJsonObject> 停止结果。
@@ -686,10 +731,17 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetPlayState(const TShar
     }
 
     const bool bIsPlaying = (GEditor->PlayWorld != nullptr);
+    const bool bIsPlaySessionQueued = GEditor->IsPlaySessionRequestQueued();
+    const bool bIsVRPreview = GEditor->IsVRPreviewActive();
 
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetBoolField(TEXT("success"), true);
     ResultObj->SetBoolField(TEXT("is_playing"), bIsPlaying);
+    ResultObj->SetBoolField(TEXT("is_play_session_queued"), bIsPlaySessionQueued);
+    ResultObj->SetBoolField(TEXT("is_vr_preview"), bIsVRPreview);
+    ResultObj->SetStringField(
+        TEXT("play_mode"),
+        bIsVRPreview ? TEXT("vr_preview") : (bIsPlaying ? TEXT("pie") : (bIsPlaySessionQueued ? TEXT("queued") : TEXT("stopped"))));
     if (bIsPlaying)
     {
         UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, GEditor->PlayWorld, TEXT("pie"));

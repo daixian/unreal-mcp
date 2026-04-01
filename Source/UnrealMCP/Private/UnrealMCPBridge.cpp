@@ -265,6 +265,7 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("load_level") ||
                      CommandType == TEXT("save_current_level") ||
                      CommandType == TEXT("start_pie") ||
+                     CommandType == TEXT("start_vr_preview") ||
                      CommandType == TEXT("stop_pie") ||
                      CommandType == TEXT("get_play_state") ||
                      CommandType == TEXT("start_live_coding") ||

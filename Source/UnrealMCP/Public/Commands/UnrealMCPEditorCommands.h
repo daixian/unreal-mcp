@@ -63,6 +63,13 @@ private:
     TSharedPtr<FJsonObject> HandleStartPIE(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 启动 VR Preview 会话。
+     * @param [in] Params 启动参数（当前预留扩展）。
+     * @return TSharedPtr<FJsonObject> 启动结果。
+     */
+    TSharedPtr<FJsonObject> HandleStartVRPreview(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 停止当前 PIE 会话。
      * @param [in] Params 停止参数（当前未使用）。
      * @return TSharedPtr<FJsonObject> 停止结果。
