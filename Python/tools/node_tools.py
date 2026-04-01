@@ -670,5 +670,40 @@ def register_blueprint_node_tools(mcp: FastMCP):
             error_msg = f"Error deleting blueprint node: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def setup_zspace_minimal_interaction(
+        ctx: Context,
+        blueprint_name: str = "BP_ZSpacePawn",
+        ray_length: float = 2000.0
+    ) -> Dict[str, Any]:
+        """Build the minimal ZSpace interaction graph for a pawn Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": blueprint_name,
+                "ray_length": float(ray_length)
+            }
+
+            logger.info(f"Setting up zSpace minimal interaction for '{blueprint_name}'")
+            response = unreal.send_command("setup_zspace_minimal_interaction", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Setup zSpace minimal interaction response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error setting up zSpace minimal interaction: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
     
     logger.info("Blueprint node tools registered successfully")

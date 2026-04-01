@@ -137,7 +137,7 @@ def register_asset_tools(mcp: FastMCP):
         asset_name: str = "",
         name: str = ""
     ) -> Dict[str, Any]:
-        """Load an asset and return a structured summary based on its type."""
+        """Load an asset and return a structured summary based on its type, including WidgetBlueprint layout details when available."""
         del ctx
 
         params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
@@ -171,7 +171,7 @@ def register_asset_tools(mcp: FastMCP):
         asset_name: str = "",
         name: str = ""
     ) -> Dict[str, Any]:
-        """Load a Blueprint asset and return Blueprint-specific structured data."""
+        """Load a Blueprint asset and return Blueprint-specific structured data, including detailed WidgetBlueprint widget_tree, slot layout, bindings and animations."""
         del ctx
 
         params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)

@@ -373,11 +373,16 @@ def info():
 
     ## Editor Tools
     ### Viewport and Screenshots
-    - `focus_viewport(target, location, distance, orientation)` - Focus viewport
-    - `take_screenshot(filename, show_ui, resolution)` - Capture screenshots
+    - `focus_viewport(target=None, location=None, distance=1000.0, orientation=None)` - Focus the active editor viewport on an actor or location
+    - `take_screenshot(filepath)` - Capture a screenshot of the active viewport and save it to `filepath`
     - `start_pie(simulate=False)` - Start Play-In-Editor session
+    - `start_vr_preview()` - Start a VR Preview session
     - `stop_pie()` - Stop current Play-In-Editor session
-    - `get_play_state()` - Query current Play-In-Editor running state
+    - `get_play_state()` - Query current play state, including `is_playing`, `is_play_session_queued`, `is_vr_preview` and `play_mode`
+    - `make_directory(directory_path)` - Create a Content Browser directory, path must start with `/Game`
+    - `duplicate_asset(source_asset_path, destination_asset_path, overwrite=False)` - Duplicate an asset to another content path
+    - `load_level(level_path)` - Load a level by content path
+    - `save_current_level()` - Save the current editor level
     - `start_live_coding(show_console=True)` - Enable Live Coding for current editor session
     - `compile_live_coding(wait_for_completion=False, show_console=True)` - Trigger Live Coding compile
     - `get_live_coding_state()` - Query current Live Coding session state
@@ -401,6 +406,7 @@ def info():
     - `cleanup_blueprint_for_reparent(blueprint_name, remove_components=[], remove_member_nodes=[], refresh_nodes=True, compile=True, save=True)` - Remove stale component/member nodes after reparenting
     - `set_blueprint_property(blueprint_name, property_name, property_value)` - Set properties
     - `set_pawn_properties(blueprint_name)` - Configure Pawn settings
+    - `set_game_mode_default_pawn(game_mode_name, pawn_blueprint_name)` - Set the default pawn class for a GameMode Blueprint
     - `spawn_blueprint_actor(blueprint_name, actor_name)` - Spawn Blueprint actors
 
     ## Asset Tools
@@ -408,9 +414,9 @@ def info():
     - `get_asset_metadata(asset_path="", object_path="", asset_name="", name="")` - Query asset metadata, tags and references
     - `get_asset_dependencies(asset_path="", object_path="", asset_name="", name="")` - Query detailed dependencies
     - `get_asset_referencers(asset_path="", object_path="", asset_name="", name="")` - Query detailed referencers
-    - `get_asset_summary(asset_path="", object_path="", asset_name="", name="")` - Load asset and summarize by type
+    - `get_asset_summary(asset_path="", object_path="", asset_name="", name="")` - Load asset and summarize by type; WidgetBlueprint summaries include detailed widget layout data when available
     - `save_asset(asset_path="", object_path="", asset_name="", name="", only_if_dirty=False)` - Save an asset resolved by path or name
-    - `get_blueprint_summary(asset_path="", object_path="", asset_name="", name="")` - Load Blueprint asset and summarize structure
+    - `get_blueprint_summary(asset_path="", object_path="", asset_name="", name="")` - Load Blueprint asset and summarize structure; WidgetBlueprint results include `widget_tree`, slot/layout data, `bindings` and `animations`
     
     ## Blueprint Node Management
     - `add_blueprint_event_node(blueprint_name, event_type)` - Add event nodes
@@ -425,6 +431,7 @@ def info():
     - `add_blueprint_get_self_component_reference(blueprint_name, component_name)` - Add component refs
     - `add_blueprint_self_reference(blueprint_name)` - Add self references
     - `find_blueprint_nodes(blueprint_name, node_type=None, event_type=None, include_details=False)` - Find nodes, supports Event/Function/Variable/InputAction/All
+    - `setup_zspace_minimal_interaction(blueprint_name="BP_ZSpacePawn", ray_length=2000.0)` - Generate the minimal zSpace interaction node flow
     
     ## Project Tools
     - `create_input_mapping(action_name, key, input_type)` - Create input mappings
@@ -461,6 +468,7 @@ def info():
     - Prefer `search_assets` and `get_asset_metadata` for low-cost discovery
     - Use `get_asset_summary` only when you need semantic details from a loaded asset
     - Use `get_blueprint_summary` for Blueprint-specific structure instead of generic summaries
+    - For WidgetBlueprint layout inspection, prefer `get_blueprint_summary` or `get_asset_summary` and read the returned `widget_tree` plus slot/layout fields
     - Check dependencies and referencers before changing shared assets
 
     ### Error Handling

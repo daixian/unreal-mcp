@@ -435,6 +435,24 @@ def register_editor_tools(mcp: FastMCP):
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
+    def start_vr_preview(ctx: Context) -> Dict[str, Any]:
+        """Start a VR Preview session."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("start_vr_preview", {})
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error starting VR Preview: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
     def stop_pie(ctx: Context) -> Dict[str, Any]:
         """Stop the current Play-In-Editor (PIE) session."""
         from unreal_mcp_server import get_unreal_connection
@@ -468,6 +486,91 @@ def register_editor_tools(mcp: FastMCP):
 
         except Exception as e:
             logger.error(f"Error getting play state: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def make_directory(ctx: Context, directory_path: str) -> Dict[str, Any]:
+        """Create a directory in the Content Browser."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("make_directory", {
+                "directory_path": directory_path
+            })
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error making directory: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def duplicate_asset(
+        ctx: Context,
+        source_asset_path: str,
+        destination_asset_path: str,
+        overwrite: bool = False
+    ) -> Dict[str, Any]:
+        """Duplicate an asset to another path."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("duplicate_asset", {
+                "source_asset_path": source_asset_path,
+                "destination_asset_path": destination_asset_path,
+                "overwrite": overwrite
+            })
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error duplicating asset: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def load_level(ctx: Context, level_path: str) -> Dict[str, Any]:
+        """Load a level by content path."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("load_level", {
+                "level_path": level_path
+            })
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error loading level: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def save_current_level(ctx: Context) -> Dict[str, Any]:
+        """Save the current level."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("save_current_level", {})
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error saving current level: {e}")
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
@@ -586,7 +689,7 @@ def register_editor_tools(mcp: FastMCP):
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 
-    # @mcp.tool() commented out because it's buggy
+    @mcp.tool()
     def focus_viewport(
         ctx: Context,
         target: str = None,
@@ -632,6 +735,26 @@ def register_editor_tools(mcp: FastMCP):
         except Exception as e:
             logger.error(f"Error focusing viewport: {e}")
             return {"status": "error", "message": str(e)}
+
+    @mcp.tool()
+    def take_screenshot(ctx: Context, filepath: str) -> Dict[str, Any]:
+        """Capture a screenshot of the active viewport."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("take_screenshot", {
+                "filepath": filepath
+            })
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error taking screenshot: {e}")
+            return {"success": False, "message": str(e)}
 
     @mcp.tool()
     def spawn_blueprint_actor(

@@ -386,7 +386,7 @@ def register_blueprint_tools(mcp: FastMCP):
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 
-    # @mcp.tool() commented out, just use set_component_property instead
+    @mcp.tool()
     def set_pawn_properties(
         ctx: Context,
         blueprint_name: str,
@@ -470,6 +470,41 @@ def register_blueprint_tools(mcp: FastMCP):
             
         except Exception as e:
             error_msg = f"Error setting pawn properties: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_game_mode_default_pawn(
+        ctx: Context,
+        game_mode_name: str,
+        pawn_blueprint_name: str
+    ) -> Dict[str, Any]:
+        """Set the default pawn class for a GameMode Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "game_mode_name": game_mode_name,
+                "pawn_blueprint_name": pawn_blueprint_name
+            }
+
+            logger.info(f"Setting default pawn for GameMode '{game_mode_name}' to '{pawn_blueprint_name}'")
+            response = unreal.send_command("set_game_mode_default_pawn", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Set game mode default pawn response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error setting game mode default pawn: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
     
