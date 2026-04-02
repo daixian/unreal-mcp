@@ -1,104 +1,98 @@
-# Unreal MCP Editor Tools
+# 编辑器与运行控制工具
 
-This document provides detailed information about the editor tools available in the Unreal MCP integration.
+## 概览
 
-## Overview
+本页描述编辑器级控制能力，包括关卡读写、PIE、Live Coding、视口控制与截图。
 
-Editor tools allow you to control the Unreal Editor viewport and other editor functionality through MCP commands. These tools are particularly useful for automating tasks like focusing the camera on specific actors or locations.
+- Python 注册位置：`Python/tools/editor_tools.py`
+- Unreal 命令处理位置：`Source/UnrealMCP/Private/Commands/UnrealMCPEditorCommands.cpp`
 
-## Editor Tools
+## 工具列表
 
-### focus_viewport
+| 工具 | 关键参数 | 说明 |
+| --- | --- | --- |
+| `make_directory` | `directory_path` | 在 Content Browser 中创建目录。路径通常应以 `/Game` 开头。 |
+| `duplicate_asset` | `source_asset_path`、`destination_asset_path`、`overwrite=False` | 复制一个资产到新路径。 |
+| `load_level` | `level_path` | 按内容路径加载关卡。 |
+| `save_current_level` | 无 | 保存当前编辑器关卡。 |
+| `start_pie` | `simulate=False` | 请求启动 PIE。返回 `already_playing`、`play_world_available` 等状态字段。 |
+| `start_vr_preview` | 无 | 请求启动 VR Preview。返回 `request_queued`、`is_vr_preview` 等状态字段。 |
+| `stop_pie` | 无 | 请求结束当前 PIE。 |
+| `get_play_state` | 无 | 查询当前编辑器是否处于 `pie` / `vr_preview` / `queued` / `stopped`。 |
+| `start_live_coding` | `show_console=True` | 启用当前编辑器会话的 Live Coding。 |
+| `compile_live_coding` | `wait_for_completion=False`、`show_console=True` | 触发 Live Coding 编译。 |
+| `get_live_coding_state` | 无 | 查询 Live Coding 当前状态。 |
+| `focus_viewport` | `target=None`、`location=None`、`distance=1000.0`、`orientation=None` | 聚焦到指定 Actor 或坐标。`target` 与 `location` 至少要传一个。 |
+| `take_screenshot` | `filepath` | 对当前激活视口截图并写入文件。若路径不带 `.png`，Unreal 侧会自动补齐。 |
 
-Focus the viewport on a specific actor or location.
+## 参数注意事项
 
-**Parameters:**
-- `target` (string, optional) - Name of the actor to focus on (if provided, location is ignored)
-- `location` (array, optional) - [X, Y, Z] coordinates to focus on (used if target is None)
-- `distance` (float, optional) - Distance from the target/location (default: 1000.0)
-- `orientation` (array, optional) - [Pitch, Yaw, Roll] for the viewport camera
+### `take_screenshot`
 
-**Returns:**
-- Response from Unreal Engine containing the result of the focus operation
+当前对外公开参数只有：
 
-**Example:**
+- `filepath`
+
+旧文档中的 `filename`、`show_ui`、`resolution` 并不是当前 MCP 工具真实支持的参数，不应再继续使用。
+
+### `compile_live_coding`
+
+当 `wait_for_completion=True` 时：
+
+- Python 侧会把响应等待时间提升到较长超时。
+- 如果 Unreal 在超时时间内没有返回，Python 侧会补做一次状态查询，并在错误结果中附加：
+  - `timed_out_waiting_for_response`
+  - `live_coding_state`
+
+## 返回说明
+
+这些工具大多直接透传 Unreal 桥接结果：
+
+- 成功：`{"status":"success","result":{...}}`
+- 失败：`{"status":"error","error":"..."}`
+
+其中比较常见的成功结果字段包括：
+
+- `start_pie`：`already_playing`、`play_world_available`、`message`
+- `start_vr_preview`：`already_playing`、`request_queued`、`is_vr_preview`
+- `get_play_state`：`is_playing`、`is_play_session_queued`、`is_vr_preview`、`play_mode`
+- `start_live_coding`：`show_console` 以及 Unreal 侧当前 Live Coding 状态字段
+- `compile_live_coding`：`compile_result`、`wait_for_completion`、`show_console`
+- `take_screenshot`：`filepath`
+
+## 调用示例
+
+### 启动 PIE
+
 ```json
 {
-  "command": "focus_viewport",
-  "params": {
+  "tool": "start_pie",
+  "args": {
+    "simulate": false
+  }
+}
+```
+
+### 聚焦到指定 Actor
+
+```json
+{
+  "tool": "focus_viewport",
+  "args": {
     "target": "PlayerStart",
-    "distance": 500,
+    "distance": 600,
     "orientation": [0, 180, 0]
   }
 }
 ```
 
-### take_screenshot
+### 保存一张视口截图
 
-Capture a screenshot of the viewport.
-
-**Parameters:**
-- `filename` (string, optional) - Name of the file to save the screenshot as (default: "screenshot.png")
-- `show_ui` (boolean, optional) - Whether to include UI elements in the screenshot (default: false)
-- `resolution` (array, optional) - [Width, Height] for the screenshot
-
-**Returns:**
-- Result of the screenshot operation
-
-**Example:**
 ```json
 {
-  "command": "take_screenshot",
-  "params": {
-    "filename": "my_scene.png",
-    "show_ui": false,
-    "resolution": [1920, 1080]
+  "tool": "take_screenshot",
+  "args": {
+    "filepath": "C:/Temp/ue_view.png"
   }
 }
 ```
-
-## Error Handling
-
-All command responses include a "status" field indicating whether the operation succeeded, and an optional "message" field with details in case of failure.
-
-```json
-{
-  "status": "error",
-  "message": "Failed to get active viewport"
-}
-```
-
-## Usage Examples
-
-### Python Example
-
-```python
-from unreal_mcp_server import get_unreal_connection
-
-# Get connection to Unreal Engine
-unreal = get_unreal_connection()
-
-# Focus on a specific actor
-focus_response = unreal.send_command("focus_viewport", {
-    "target": "PlayerStart",
-    "distance": 500,
-    "orientation": [0, 180, 0]
-})
-print(focus_response)
-
-# Take a screenshot
-screenshot_response = unreal.send_command("take_screenshot", {"filename": "my_scene.png"})
-print(screenshot_response)
-```
-
-## Troubleshooting
-
-- **Command fails with "Failed to get active viewport"**: Make sure Unreal Editor is running and has an active viewport.
-- **Actor not found**: Verify that the actor name is correct and the actor exists in the current level.
-- **Invalid parameters**: Ensure that location and orientation arrays contain exactly 3 values (X, Y, Z for location; Pitch, Yaw, Roll for orientation).
-
-## Future Enhancements
-
-- Support for setting viewport display mode (wireframe, lit, etc.)
-- Camera animation paths for cinematic viewport control
-- Support for multiple viewports

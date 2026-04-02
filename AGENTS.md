@@ -20,5 +20,5 @@
 - 日志全部改成“中文主体”，只保留函数名/变量名等为英文.
 - 禁止在项目中使用anonymous-namespace
 - 禁止写类似 `EnsureOpened()` 这样的逻辑.初始化必须在流程上可控的时候操作,而不是随便Ensure.
-- C++代码注释风格见 `Docs\Standards\code-comment-style.md`
+- C++代码注释风格见 `STD\code-comment-style.md`
 - 禁止添加旧类名或者旧函数名的兼容包装

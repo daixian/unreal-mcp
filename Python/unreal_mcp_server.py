@@ -431,7 +431,6 @@ def info():
     - `add_blueprint_get_self_component_reference(blueprint_name, component_name)` - Add component refs
     - `add_blueprint_self_reference(blueprint_name)` - Add self references
     - `find_blueprint_nodes(blueprint_name, node_type=None, event_type=None, include_details=False)` - Find nodes, supports Event/Function/Variable/InputAction/All
-    - `setup_zspace_minimal_interaction(blueprint_name="BP_ZSpacePawn", ray_length=2000.0)` - Generate the minimal zSpace interaction node flow
     
     ## Project Tools
     - `create_input_mapping(action_name, key, input_type)` - Create input mappings

@@ -107,10 +107,4 @@ private:
      */
     TSharedPtr<FJsonObject> HandleFindBlueprintNodes(const TSharedPtr<FJsonObject>& Params);
 
-    /**
-     * @brief 配置 ZSpace 最小交互节点链路。
-     * @param [in] Params 配置参数。
-     * @return TSharedPtr<FJsonObject> 执行结果。
-     */
-    TSharedPtr<FJsonObject> HandleSetupZSpaceMinimalInteraction(const TSharedPtr<FJsonObject>& Params);
 };
