@@ -26,24 +26,24 @@
 *.sdf
 *.ipch
 
-# Python environment and build artifacts
+# MCPServer environment and build artifacts
 /.venv/
 /venv/
-/Python/.venv/
-/Python/venv/
-/Python/env/
-/Python/ENV/
+/MCPServer/.venv/
+/MCPServer/venv/
+/MCPServer/env/
+/MCPServer/ENV/
 __pycache__/
-/Python/**/__pycache__/
-/Python/.pytest_cache/
-/Python/.mypy_cache/
-/Python/.ruff_cache/
-/Python/build/
-/Python/dist/
-/Python/.eggs/
-/Python/*.egg-info/
-/Python/pip-wheel-metadata/
-/Python/unreal_mcp.log
+/MCPServer/**/__pycache__/
+/MCPServer/.pytest_cache/
+/MCPServer/.mypy_cache/
+/MCPServer/.ruff_cache/
+/MCPServer/build/
+/MCPServer/dist/
+/MCPServer/.eggs/
+/MCPServer/*.egg-info/
+/MCPServer/pip-wheel-metadata/
+/MCPServer/unreal_mcp.log
 
 # AI / assistant local files
 /.cursor/

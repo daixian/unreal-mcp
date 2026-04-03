@@ -974,6 +974,74 @@ namespace UnrealMCPEditorCommandsPrivate
     }
 
     /**
+     * @brief 判断 Python 输入是否包含多行脚本内容。
+     * @param [in] CommandText 原始命令文本。
+     * @return bool 包含换行时返回 true。
+     */
+    bool IsPythonCommandMultiLine(const FString& CommandText)
+    {
+        return CommandText.Contains(TEXT("\n")) || CommandText.Contains(TEXT("\r"));
+    }
+
+    /**
+     * @brief 粗略判断 Python 输入是否更像是脚本文件命令。
+     * @param [in] CommandText 原始命令文本。
+     * @return bool 看起来像 .py 文件路径时返回 true。
+     */
+    bool LooksLikePythonFileCommand(const FString& CommandText)
+    {
+        const FString TrimmedCommand = CommandText.TrimStartAndEnd();
+        if (TrimmedCommand.IsEmpty())
+        {
+            return false;
+        }
+
+        const int32 ExtensionIndex = TrimmedCommand.Find(TEXT(".py"), ESearchCase::IgnoreCase, ESearchDir::FromStart);
+        if (ExtensionIndex == INDEX_NONE)
+        {
+            return false;
+        }
+
+        const int32 NextCharacterIndex = ExtensionIndex + 3;
+        if (NextCharacterIndex >= TrimmedCommand.Len())
+        {
+            return true;
+        }
+
+        const TCHAR NextCharacter = TrimmedCommand[NextCharacterIndex];
+        return FChar::IsWhitespace(NextCharacter) || NextCharacter == TCHAR('"');
+    }
+
+    /**
+     * @brief 解析 Python 执行模式，支持 Auto 自动选择。
+     * @param [in] RequestedExecutionModeText 请求的执行模式文本。
+     * @param [in] CommandText 原始命令文本。
+     * @param [out] OutExecutionMode 最终执行模式。
+     * @param [out] bOutAutoSelected 是否使用了自动选择。
+     * @return bool 解析成功返回 true。
+     */
+    bool TryResolvePythonExecutionMode(
+        const FString& RequestedExecutionModeText,
+        const FString& CommandText,
+        EPythonCommandExecutionMode& OutExecutionMode,
+        bool& bOutAutoSelected
+    )
+    {
+        const FString Normalized = RequestedExecutionModeText.TrimStartAndEnd();
+        if (Normalized.IsEmpty() || Normalized.Equals(TEXT("Auto"), ESearchCase::IgnoreCase))
+        {
+            bOutAutoSelected = true;
+            OutExecutionMode = (IsPythonCommandMultiLine(CommandText) || LooksLikePythonFileCommand(CommandText))
+                ? EPythonCommandExecutionMode::ExecuteFile
+                : EPythonCommandExecutionMode::ExecuteStatement;
+            return true;
+        }
+
+        bOutAutoSelected = false;
+        return TryParsePythonExecutionMode(Normalized, OutExecutionMode);
+    }
+
+    /**
      * @brief 解析 Python 文件执行作用域字符串。
      * @param [in] ScopeText 输入文本。
      * @param [out] OutScope 解析结果。
@@ -998,6 +1066,27 @@ namespace UnrealMCPEditorCommandsPrivate
         }
 
         return false;
+    }
+
+    /**
+     * @brief 将 Python 日志文本数组写入 JSON 字段。
+     * @param [in,out] Result 输出对象。
+     * @param [in] FieldName 字段名。
+     * @param [in] Lines 文本行数组。
+     */
+    void AppendPythonTextArrayField(
+        const TSharedPtr<FJsonObject>& Result,
+        const FString& FieldName,
+        const TArray<FString>& Lines
+    )
+    {
+        TArray<TSharedPtr<FJsonValue>> JsonValues;
+        JsonValues.Reserve(Lines.Num());
+        for (const FString& Line : Lines)
+        {
+            JsonValues.Add(MakeShared<FJsonValueString>(Line));
+        }
+        Result->SetArrayField(FieldName, JsonValues);
     }
 
     /**
@@ -3700,14 +3789,19 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleExecuteUnrealPython(cons
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("PythonScriptPlugin 尚未初始化完成"));
     }
 
-    FString ExecutionModeText = TEXT("ExecuteStatement");
-    Params->TryGetStringField(TEXT("execution_mode"), ExecutionModeText);
+    FString RequestedExecutionModeText = TEXT("Auto");
+    Params->TryGetStringField(TEXT("execution_mode"), RequestedExecutionModeText);
 
     EPythonCommandExecutionMode ExecutionMode = EPythonCommandExecutionMode::ExecuteStatement;
-    if (!UnrealMCPEditorCommandsPrivate::TryParsePythonExecutionMode(ExecutionModeText, ExecutionMode))
+    bool bExecutionModeAutoSelected = false;
+    if (!UnrealMCPEditorCommandsPrivate::TryResolvePythonExecutionMode(
+        RequestedExecutionModeText,
+        Command,
+        ExecutionMode,
+        bExecutionModeAutoSelected))
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Invalid 'execution_mode': %s"), *ExecutionModeText));
+            FString::Printf(TEXT("Invalid 'execution_mode': %s"), *RequestedExecutionModeText));
     }
 
     FString FileExecutionScopeText = TEXT("Private");
@@ -3733,22 +3827,56 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleExecuteUnrealPython(cons
     const bool bExecutionSuccess = PythonScriptPlugin->ExecPythonCommandEx(PythonCommand);
 
     TArray<TSharedPtr<FJsonValue>> LogOutputValues;
+    TArray<FString> StdOutLines;
+    TArray<FString> WarningLines;
+    TArray<FString> ErrorLines;
     for (const FPythonLogOutputEntry& Entry : PythonCommand.LogOutput)
     {
         TSharedPtr<FJsonObject> EntryObject = MakeShared<FJsonObject>();
         EntryObject->SetStringField(TEXT("type"), LexToString(Entry.Type));
         EntryObject->SetStringField(TEXT("output"), Entry.Output);
         LogOutputValues.Add(MakeShared<FJsonValueObject>(EntryObject));
+
+        switch (Entry.Type)
+        {
+            case EPythonLogOutputType::Info:
+                StdOutLines.Add(Entry.Output);
+                break;
+            case EPythonLogOutputType::Warning:
+                WarningLines.Add(Entry.Output);
+                break;
+            case EPythonLogOutputType::Error:
+                ErrorLines.Add(Entry.Output);
+                break;
+            default:
+                break;
+        }
     }
+
+    const bool bInputContainsNewlines = UnrealMCPEditorCommandsPrivate::IsPythonCommandMultiLine(Command);
+    const bool bCommandLooksLikeFile = UnrealMCPEditorCommandsPrivate::LooksLikePythonFileCommand(Command);
+    const FString TracebackText = bExecutionSuccess ? FString() : PythonCommand.CommandResult;
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetBoolField(TEXT("success"), true);
     Result->SetBoolField(TEXT("execution_success"), bExecutionSuccess);
+    Result->SetBoolField(TEXT("script_executed"), bExecutionSuccess);
     Result->SetStringField(TEXT("command"), Command);
+    Result->SetStringField(TEXT("requested_execution_mode"), RequestedExecutionModeText);
     Result->SetStringField(TEXT("execution_mode"), LexToString(ExecutionMode));
+    Result->SetBoolField(TEXT("execution_mode_auto_selected"), bExecutionModeAutoSelected);
     Result->SetStringField(TEXT("file_execution_scope"), FileExecutionScope == EPythonFileExecutionScope::Public ? TEXT("Public") : TEXT("Private"));
     Result->SetBoolField(TEXT("unattended"), bUnattended);
+    Result->SetBoolField(TEXT("input_contains_newlines"), bInputContainsNewlines);
+    Result->SetBoolField(TEXT("command_looks_like_file"), bCommandLooksLikeFile);
     Result->SetStringField(TEXT("command_result"), PythonCommand.CommandResult);
+    Result->SetStringField(TEXT("stdout"), FString::Join(StdOutLines, TEXT("")));
+    Result->SetStringField(TEXT("warning_output"), FString::Join(WarningLines, TEXT("")));
+    Result->SetStringField(TEXT("stderr"), FString::Join(ErrorLines, TEXT("")));
+    Result->SetStringField(TEXT("traceback"), TracebackText);
+    UnrealMCPEditorCommandsPrivate::AppendPythonTextArrayField(Result, TEXT("stdout_lines"), StdOutLines);
+    UnrealMCPEditorCommandsPrivate::AppendPythonTextArrayField(Result, TEXT("warning_lines"), WarningLines);
+    UnrealMCPEditorCommandsPrivate::AppendPythonTextArrayField(Result, TEXT("stderr_lines"), ErrorLines);
     Result->SetArrayField(TEXT("log_output"), LogOutputValues);
     return Result;
 }

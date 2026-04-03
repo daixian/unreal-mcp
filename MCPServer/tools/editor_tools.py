@@ -1192,11 +1192,19 @@ def register_editor_tools(mcp: FastMCP):
     def execute_unreal_python(
         ctx: Context,
         command: str,
-        execution_mode: str = "ExecuteStatement",
+        execution_mode: str = "Auto",
         file_execution_scope: str = "Private",
         unattended: bool = False
     ) -> Dict[str, Any]:
-        """Execute Unreal Python using the PythonScriptPlugin."""
+        """Execute Unreal Python using the PythonScriptPlugin.
+
+        Args:
+            command: Literal Python code, or a Python file path with optional arguments.
+            execution_mode: "Auto", "ExecuteFile", "ExecuteStatement", or "EvaluateStatement".
+                "Auto" will choose "ExecuteFile" for multi-line/file-like input, otherwise "ExecuteStatement".
+            file_execution_scope: Scope used when executing files or multi-line scripts in ExecuteFile mode.
+            unattended: Whether to suppress certain UI while the script runs.
+        """
         from unreal_mcp_server import get_unreal_connection
 
         try:
