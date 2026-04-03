@@ -372,6 +372,9 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("rename_asset") ||
                      CommandType == TEXT("move_asset") ||
                      CommandType == TEXT("delete_asset") ||
+                     CommandType == TEXT("set_asset_metadata") ||
+                     CommandType == TEXT("consolidate_assets") ||
+                     CommandType == TEXT("replace_asset_references") ||
                      CommandType == TEXT("get_selected_assets") ||
                      CommandType == TEXT("sync_content_browser_to_assets") ||
                      CommandType == TEXT("save_all_dirty_assets") ||
@@ -380,7 +383,14 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("get_material_parameters") ||
                      CommandType == TEXT("set_material_instance_scalar_parameter") ||
                      CommandType == TEXT("set_material_instance_vector_parameter") ||
-                     CommandType == TEXT("set_material_instance_texture_parameter"))
+                     CommandType == TEXT("set_material_instance_texture_parameter") ||
+                     CommandType == TEXT("assign_material_to_actor") ||
+                     CommandType == TEXT("assign_material_to_component") ||
+                     CommandType == TEXT("replace_material_slot") ||
+                     CommandType == TEXT("add_material_expression") ||
+                     CommandType == TEXT("connect_material_expressions") ||
+                     CommandType == TEXT("layout_material_graph") ||
+                     CommandType == TEXT("compile_material"))
                 {
                 ResultJson = AssetCommands->HandleCommand(CommandType, Params);
                 }

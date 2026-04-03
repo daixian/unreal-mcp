@@ -115,6 +115,27 @@ private:
     TSharedPtr<FJsonObject> HandleDeleteAsset(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 设置资产元数据标签。
+     * @param [in] Params 写入参数。
+     * @return TSharedPtr<FJsonObject> 写入结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetAssetMetadata(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 将多个重复资产合并到目标资产。
+     * @param [in] Params 合并参数。
+     * @return TSharedPtr<FJsonObject> 合并结果。
+     */
+    TSharedPtr<FJsonObject> HandleConsolidateAssets(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 使用 UE 的 Replace References 工作流批量替换引用。
+     * @param [in] Params 替换参数。
+     * @return TSharedPtr<FJsonObject> 替换结果。
+     */
+    TSharedPtr<FJsonObject> HandleReplaceAssetReferences(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 获取当前 Content Browser 选中的资产。
      * @param [in] Params 查询参数。
      * @return TSharedPtr<FJsonObject> 选中资产结果。
@@ -183,4 +204,53 @@ private:
      * @return TSharedPtr<FJsonObject> 设置结果。
      */
     TSharedPtr<FJsonObject> HandleSetMaterialInstanceTextureParameter(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 给 Actor 上全部可写材质槽的 MeshComponent 赋材质。
+     * @param [in] Params 设置参数。
+     * @return TSharedPtr<FJsonObject> 设置结果。
+     */
+    TSharedPtr<FJsonObject> HandleAssignMaterialToActor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 给 Actor 的指定 MeshComponent 赋材质。
+     * @param [in] Params 设置参数。
+     * @return TSharedPtr<FJsonObject> 设置结果。
+     */
+    TSharedPtr<FJsonObject> HandleAssignMaterialToComponent(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 替换 Actor 或指定组件上的某个材质槽。
+     * @param [in] Params 替换参数。
+     * @return TSharedPtr<FJsonObject> 替换结果。
+     */
+    TSharedPtr<FJsonObject> HandleReplaceMaterialSlot(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向材质图中添加一个材质表达式节点。
+     * @param [in] Params 创建参数。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddMaterialExpression(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 连接两个材质表达式，或把表达式输出连接到材质属性。
+     * @param [in] Params 连接参数。
+     * @return TSharedPtr<FJsonObject> 连接结果。
+     */
+    TSharedPtr<FJsonObject> HandleConnectMaterialExpressions(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 自动整理材质图中表达式节点布局。
+     * @param [in] Params 整理参数。
+     * @return TSharedPtr<FJsonObject> 整理结果。
+     */
+    TSharedPtr<FJsonObject> HandleLayoutMaterialGraph(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 触发材质重新编译并保存。
+     * @param [in] Params 编译参数。
+     * @return TSharedPtr<FJsonObject> 编译结果。
+     */
+    TSharedPtr<FJsonObject> HandleCompileMaterial(const TSharedPtr<FJsonObject>& Params);
 };

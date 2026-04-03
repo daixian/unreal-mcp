@@ -3,7 +3,7 @@
 ## 说明
 
 - 本文基于当前仓库本地代码状态整理，范围限定为 `UnrealMCP` 插件应该覆盖的 UE 常用能力。
-- 当前正式暴露的 MCP 工具共 `154` 个，来源于 `Python/tools` 的 7 组工具注册；C++ 侧还有 `create_actor` 兼容别名，但不建议当作正式工具名继续扩展。
+- 当前正式暴露的 MCP 工具共 `164` 个，来源于 `Python/tools` 的 7 组工具注册；C++ 侧还有 `create_actor` 兼容别名，但不建议当作正式工具名继续扩展。
 - 标记说明：
   - `- [x]` 当前已实现，且 Python 工具注册与 C++ 命令分发都已存在。
   - `- [ ]` 当前未实现，建议补齐。
@@ -29,9 +29,9 @@
 - [x] 重新导入资源：`reimport_asset`
 - [x] 导出资源：`export_asset`
 - [x] 修复重定向器：`fixup_redirectors`
-- [ ] 合并重复资产：`consolidate_assets`
-- [ ] 批量替换引用：`replace_asset_references`
-- [ ] 设置资产标签和元数据：`set_asset_metadata`
+- [x] 合并重复资产：`consolidate_assets`
+- [x] 批量替换引用：`replace_asset_references`
+- [x] 设置资产标签和元数据：`set_asset_metadata`
 - [x] 同步 Content Browser 选中状态：`sync_content_browser_to_assets`
 - [x] 获取当前选中资产：`get_selected_assets`
 - [x] 保存全部脏资产：`save_all_dirty_assets`
@@ -235,12 +235,12 @@
 - [x] 创建材质实例：`create_material_instance`
 - [x] 读取材质参数：`get_material_parameters`
 - [x] 设置材质实例参数：`set_material_instance_scalar_parameter`、`set_material_instance_vector_parameter`、`set_material_instance_texture_parameter`
-- [ ] 给 Actor / 组件赋材质：`assign_material_to_actor`、`assign_material_to_component`
-- [ ] 替换指定材质槽：`replace_material_slot`
-- [ ] 添加材质表达式节点：`add_material_expression`
-- [ ] 连接材质表达式：`connect_material_expressions`
-- [ ] 自动整理材质图：`layout_material_graph`
-- [ ] 编译材质：`compile_material`
+- [x] 给 Actor / 组件赋材质：`assign_material_to_actor`、`assign_material_to_component`
+- [x] 替换指定材质槽：`replace_material_slot`
+- [x] 添加材质表达式节点：`add_material_expression`
+- [x] 连接材质表达式：`connect_material_expressions`
+- [x] 自动整理材质图：`layout_material_graph`
+- [x] 编译材质：`compile_material`
 - [ ] 创建 Material Function：`create_material_function`
 - [ ] 创建 Render Target：`create_render_target`
 - [ ] 场景捕捉到 Render Target：`capture_scene_to_render_target`

@@ -5,7 +5,7 @@ This module provides tools for searching assets and retrieving structured asset 
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from mcp.server.fastmcp import FastMCP, Context
 
 # Get logger
@@ -53,6 +53,18 @@ def _build_asset_lookup_params(
     if name:
         params["name"] = name
     return params
+
+
+def _build_prefixed_asset_lookup_params(
+    prefix: str,
+    asset_path: str,
+    object_path: str,
+    asset_name: str,
+    name: str
+) -> Dict[str, Any]:
+    """Build prefixed asset lookup params for target/replacement style commands."""
+    base_params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+    return {f"{prefix}{key}": value for key, value in base_params.items()}
 
 
 def register_asset_tools(mcp: FastMCP):
@@ -333,6 +345,92 @@ def register_asset_tools(mcp: FastMCP):
         return _send_asset_command("delete_asset", params)
 
     @mcp.tool()
+    def set_asset_metadata(
+        ctx: Context,
+        metadata: Optional[Dict[str, Any]] = None,
+        remove_metadata_keys: Optional[List[str]] = None,
+        clear_existing: bool = False,
+        save_asset: bool = True,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = ""
+    ) -> Dict[str, Any]:
+        """Set metadata tags on a loaded asset and optionally remove existing keys."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+
+        metadata = metadata or {}
+        remove_metadata_keys = remove_metadata_keys or []
+        if not metadata and not remove_metadata_keys and not clear_existing:
+            return {"success": False, "message": "metadata, remove_metadata_keys or clear_existing is required"}
+
+        if metadata:
+            params["metadata"] = metadata
+        if remove_metadata_keys:
+            params["remove_metadata_keys"] = remove_metadata_keys
+        params["clear_existing"] = clear_existing
+        params["save_asset"] = save_asset
+        return _send_asset_command("set_asset_metadata", params)
+
+    @mcp.tool()
+    def consolidate_assets(
+        ctx: Context,
+        source_assets: List[str],
+        target_asset_path: str = "",
+        target_object_path: str = "",
+        target_asset_name: str = "",
+        target_name: str = ""
+    ) -> Dict[str, Any]:
+        """Consolidate duplicate assets into one target asset."""
+        del ctx
+
+        params = _build_prefixed_asset_lookup_params(
+            "target_",
+            target_asset_path,
+            target_object_path,
+            target_asset_name,
+            target_name
+        )
+        if not params:
+            return {"success": False, "message": "One of target_asset_path, target_object_path, target_asset_name or target_name is required"}
+        if not source_assets:
+            return {"success": False, "message": "source_assets is required"}
+
+        params["source_assets"] = source_assets
+        return _send_asset_command("consolidate_assets", params)
+
+    @mcp.tool()
+    def replace_asset_references(
+        ctx: Context,
+        assets_to_replace: List[str],
+        replacement_asset_path: str = "",
+        replacement_object_path: str = "",
+        replacement_asset_name: str = "",
+        replacement_name: str = ""
+    ) -> Dict[str, Any]:
+        """Replace references by using Unreal's delete-and-consolidate workflow."""
+        del ctx
+
+        params = _build_prefixed_asset_lookup_params(
+            "replacement_",
+            replacement_asset_path,
+            replacement_object_path,
+            replacement_asset_name,
+            replacement_name
+        )
+        if not params:
+            return {"success": False, "message": "One of replacement_asset_path, replacement_object_path, replacement_asset_name or replacement_name is required"}
+        if not assets_to_replace:
+            return {"success": False, "message": "assets_to_replace is required"}
+
+        params["assets_to_replace"] = assets_to_replace
+        return _send_asset_command("replace_asset_references", params)
+
+    @mcp.tool()
     def get_selected_assets(
         ctx: Context,
         include_tags: bool = False
@@ -489,5 +587,215 @@ def register_asset_tools(mcp: FastMCP):
         params["parameter_name"] = parameter_name
         params["texture_asset_path"] = texture_asset_path
         return _send_asset_command("set_material_instance_texture_parameter", params)
+
+    @mcp.tool()
+    def assign_material_to_actor(
+        ctx: Context,
+        material_asset_path: str,
+        name: str = "",
+        actor_path: str = "",
+        slot_index: int = 0,
+        slot_name: str = "",
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Assign a material to all compatible mesh components on an actor."""
+        del ctx
+
+        params: Dict[str, Any] = {
+            "material_asset_path": material_asset_path,
+            "world_type": world_type,
+            "slot_index": slot_index,
+        }
+        if name:
+            params["name"] = name
+        if actor_path:
+            params["actor_path"] = actor_path
+        if slot_name:
+            params["slot_name"] = slot_name
+        if not name and not actor_path:
+            return {"success": False, "message": "name or actor_path is required"}
+        return _send_asset_command("assign_material_to_actor", params)
+
+    @mcp.tool()
+    def assign_material_to_component(
+        ctx: Context,
+        material_asset_path: str,
+        component_name: str,
+        name: str = "",
+        actor_path: str = "",
+        slot_index: int = 0,
+        slot_name: str = "",
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Assign a material to a specific mesh component on an actor."""
+        del ctx
+
+        params: Dict[str, Any] = {
+            "material_asset_path": material_asset_path,
+            "component_name": component_name,
+            "world_type": world_type,
+            "slot_index": slot_index,
+        }
+        if name:
+            params["name"] = name
+        if actor_path:
+            params["actor_path"] = actor_path
+        if slot_name:
+            params["slot_name"] = slot_name
+        if not name and not actor_path:
+            return {"success": False, "message": "name or actor_path is required"}
+        return _send_asset_command("assign_material_to_component", params)
+
+    @mcp.tool()
+    def replace_material_slot(
+        ctx: Context,
+        material_asset_path: str,
+        name: str = "",
+        actor_path: str = "",
+        component_name: str = "",
+        slot_index: int = -1,
+        slot_name: str = "",
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Replace a specific material slot on an actor or mesh component."""
+        del ctx
+
+        if not name and not actor_path:
+            return {"success": False, "message": "name or actor_path is required"}
+        if slot_index < 0 and not slot_name:
+            return {"success": False, "message": "slot_index or slot_name is required"}
+
+        params: Dict[str, Any] = {
+            "material_asset_path": material_asset_path,
+            "world_type": world_type,
+        }
+        if name:
+            params["name"] = name
+        if actor_path:
+            params["actor_path"] = actor_path
+        if component_name:
+            params["component_name"] = component_name
+        if slot_index >= 0:
+            params["slot_index"] = slot_index
+        if slot_name:
+            params["slot_name"] = slot_name
+        return _send_asset_command("replace_material_slot", params)
+
+    @mcp.tool()
+    def add_material_expression(
+        ctx: Context,
+        expression_class: str,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        node_position: Optional[List[int]] = None,
+        selected_asset_path: str = "",
+        property_values: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Add a material expression node to a Material graph."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+
+        params["expression_class"] = expression_class
+        if node_position is not None:
+            if len(node_position) != 2:
+                return {"success": False, "message": "node_position must contain 2 integers [X, Y]"}
+            params["node_position"] = [int(node_position[0]), int(node_position[1])]
+        if selected_asset_path:
+            params["selected_asset_path"] = selected_asset_path
+        if property_values:
+            params["property_values"] = property_values
+        return _send_asset_command("add_material_expression", params)
+
+    @mcp.tool()
+    def connect_material_expressions(
+        ctx: Context,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        from_expression_path: str = "",
+        from_expression_name: str = "",
+        from_expression_index: int = -1,
+        from_output_name: str = "",
+        to_expression_path: str = "",
+        to_expression_name: str = "",
+        to_expression_index: int = -1,
+        to_input_name: str = "",
+        material_property: str = ""
+    ) -> Dict[str, Any]:
+        """Connect two material expressions, or connect an expression output to a material property."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+
+        if not from_expression_path and not from_expression_name and from_expression_index < 0:
+            return {"success": False, "message": "One of from_expression_path, from_expression_name or from_expression_index is required"}
+
+        if material_property and (to_expression_path or to_expression_name or to_expression_index >= 0):
+            return {"success": False, "message": "material_property cannot be used together with to_expression_*"}
+        if not material_property and not to_expression_path and not to_expression_name and to_expression_index < 0:
+            return {"success": False, "message": "Provide material_property or one of to_expression_path, to_expression_name or to_expression_index"}
+
+        if from_expression_path:
+            params["from_expression_path"] = from_expression_path
+        if from_expression_name:
+            params["from_expression_name"] = from_expression_name
+        if from_expression_index >= 0:
+            params["from_expression_index"] = from_expression_index
+        if from_output_name:
+            params["from_output_name"] = from_output_name
+
+        if material_property:
+            params["material_property"] = material_property
+        else:
+            if to_expression_path:
+                params["to_expression_path"] = to_expression_path
+            if to_expression_name:
+                params["to_expression_name"] = to_expression_name
+            if to_expression_index >= 0:
+                params["to_expression_index"] = to_expression_index
+            if to_input_name:
+                params["to_input_name"] = to_input_name
+
+        return _send_asset_command("connect_material_expressions", params)
+
+    @mcp.tool()
+    def layout_material_graph(
+        ctx: Context,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = ""
+    ) -> Dict[str, Any]:
+        """Auto-layout expressions in a Material graph."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        return _send_asset_command("layout_material_graph", params)
+
+    @mcp.tool()
+    def compile_material(
+        ctx: Context,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = ""
+    ) -> Dict[str, Any]:
+        """Recompile and save a Material asset."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        return _send_asset_command("compile_material", params)
 
     logger.info("资产工具注册完成")

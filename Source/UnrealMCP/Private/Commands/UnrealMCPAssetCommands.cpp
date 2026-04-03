@@ -15,6 +15,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/MeshComponent.h"
 #include "Components/PanelWidget.h"
 #include "Components/TextBlock.h"
 #include "Components/Widget.h"
@@ -23,6 +24,8 @@
 #include "Editor.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/Engine.h"
+#include "Engine/EngineBaseTypes.h"
 #include "Engine/DataTable.h"
 #include "Engine/Level.h"
 #include "Engine/LevelStreaming.h"
@@ -34,8 +37,10 @@
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
 #include "InterchangeManager.h"
+#include "Kismet/GameplayStatics.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpression.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialInstanceConstant.h"
@@ -53,6 +58,7 @@
 #include "Engine/Texture.h"
 #include "UObject/ObjectRedirector.h"
 #include "UObject/SoftObjectPtr.h"
+#include "UObject/UObjectIterator.h"
 #include "UObject/UnrealType.h"
 #include "WidgetBlueprint.h"
 
@@ -86,6 +92,17 @@ static TSharedPtr<FJsonObject> CreateAssetIdentityObject(const FAssetData& Asset
     return Result;
 }
 
+static TArray<TSharedPtr<FJsonValue>> CreateAssetIdentityArray(const TArray<FAssetData>& AssetDataList)
+{
+    TArray<TSharedPtr<FJsonValue>> Result;
+    Result.Reserve(AssetDataList.Num());
+    for (const FAssetData& AssetData : AssetDataList)
+    {
+        Result.Add(MakeShared<FJsonValueObject>(CreateAssetIdentityObject(AssetData)));
+    }
+    return Result;
+}
+
 static void AddTagsToObject(const FAssetData& AssetData, const TSharedPtr<FJsonObject>& Result, int32 MaxTagCount)
 {
     TSharedPtr<FJsonObject> Tags = MakeShared<FJsonObject>();
@@ -112,6 +129,65 @@ static TArray<TSharedPtr<FJsonValue>> ToJsonStringArray(const TArray<FString>& V
         Result.Add(MakeShared<FJsonValueString>(Value));
     }
     return Result;
+}
+
+static TSharedPtr<FJsonObject> CreateMetadataJsonObject(const TMap<FName, FString>& MetadataValues)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+
+    TArray<FName> MetadataKeys;
+    MetadataValues.GetKeys(MetadataKeys);
+    MetadataKeys.Sort(FNameLexicalLess());
+
+    for (const FName& MetadataKey : MetadataKeys)
+    {
+        const FString* Value = MetadataValues.Find(MetadataKey);
+        if (Value)
+        {
+            Result->SetStringField(MetadataKey.ToString(), *Value);
+        }
+    }
+
+    return Result;
+}
+
+static FString ConvertJsonValueToMetadataString(const TSharedPtr<FJsonValue>& JsonValue)
+{
+    if (!JsonValue.IsValid())
+    {
+        return FString();
+    }
+
+    switch (JsonValue->Type)
+    {
+    case EJson::String:
+        return JsonValue->AsString();
+    case EJson::Number:
+        return FString::SanitizeFloat(JsonValue->AsNumber());
+    case EJson::Boolean:
+        return JsonValue->AsBool() ? TEXT("true") : TEXT("false");
+    case EJson::Null:
+        return FString();
+    case EJson::Array:
+    {
+        FString SerializedValue;
+        const TArray<TSharedPtr<FJsonValue>>& ArrayValue = JsonValue->AsArray();
+        const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&SerializedValue);
+        FJsonSerializer::Serialize(ArrayValue, Writer);
+        return SerializedValue;
+    }
+    case EJson::Object:
+    {
+        FString SerializedValue;
+        const TSharedPtr<FJsonObject> ObjectValue = JsonValue->AsObject();
+        const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&SerializedValue);
+        FJsonSerializer::Serialize(ObjectValue.ToSharedRef(), Writer);
+        return SerializedValue;
+    }
+    case EJson::None:
+    default:
+        return JsonValue->AsString();
+    }
 }
 
 static bool TryGetStringArrayField(
@@ -406,6 +482,38 @@ static bool ResolveAssetDataFromParams(const TSharedPtr<FJsonObject>& Params, FA
     return ResolveAssetReference(AssetReference, OutAssetData, OutErrorMessage);
 }
 
+static bool ResolveAssetDataFromPrefixedParams(
+    const TSharedPtr<FJsonObject>& Params,
+    const FString& Prefix,
+    FAssetData& OutAssetData,
+    FString& OutErrorMessage)
+{
+    FString AssetReference;
+    if (!Params->TryGetStringField(Prefix + TEXT("asset_path"), AssetReference))
+    {
+        if (!Params->TryGetStringField(Prefix + TEXT("object_path"), AssetReference))
+        {
+            if (!Params->TryGetStringField(Prefix + TEXT("asset_name"), AssetReference))
+            {
+                Params->TryGetStringField(Prefix + TEXT("name"), AssetReference);
+            }
+        }
+    }
+
+    if (AssetReference.IsEmpty())
+    {
+        OutErrorMessage = FString::Printf(
+            TEXT("Missing one of '%sasset_path', '%sobject_path', '%sasset_name' or '%sname' parameters"),
+            *Prefix,
+            *Prefix,
+            *Prefix,
+            *Prefix);
+        return false;
+    }
+
+    return ResolveAssetReference(AssetReference, OutAssetData, OutErrorMessage);
+}
+
 static bool ResolveAssetDataListFromParams(
     const TSharedPtr<FJsonObject>& Params,
     const FString& FieldName,
@@ -607,6 +715,1174 @@ static bool ResolveMaterialInstanceFromParams(
     return true;
 }
 
+/**
+ * @brief 从参数中解析基础材质资产。
+ * @param [in] Params 命令参数。
+ * @param [out] OutMaterial 解析得到的基础材质。
+ * @param [out] OutAssetData 对应资产数据。
+ * @param [out] OutErrorMessage 失败时输出错误信息。
+ * @return bool 是否解析成功。
+ */
+static bool ResolveBaseMaterialFromParams(
+    const TSharedPtr<FJsonObject>& Params,
+    UMaterial*& OutMaterial,
+    FAssetData& OutAssetData,
+    FString& OutErrorMessage)
+{
+    UMaterialInterface* MaterialInterface = nullptr;
+    if (!ResolveMaterialInterfaceFromParams(Params, MaterialInterface, OutAssetData, OutErrorMessage))
+    {
+        return false;
+    }
+
+    OutMaterial = Cast<UMaterial>(MaterialInterface);
+    if (!OutMaterial)
+    {
+        OutErrorMessage = FString::Printf(TEXT("资源不是基础 Material: %s"), *OutAssetData.GetObjectPathString());
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief 读取整型二维节点坐标字段。
+ * @param [in] Params 命令参数。
+ * @param [in] FieldName 字段名。
+ * @param [out] OutX 输出 X 坐标。
+ * @param [out] OutY 输出 Y 坐标。
+ * @return bool 字段是否存在且解析成功。
+ */
+static bool UnrealMCPAssetTryGetIntPointField(
+    const TSharedPtr<FJsonObject>& Params,
+    const FString& FieldName,
+    int32& OutX,
+    int32& OutY)
+{
+    if (!Params.IsValid())
+    {
+        return false;
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* JsonValues = nullptr;
+    if (!Params->TryGetArrayField(FieldName, JsonValues) || !JsonValues || JsonValues->Num() < 2)
+    {
+        return false;
+    }
+
+    if (!(*JsonValues)[0].IsValid() || !(*JsonValues)[1].IsValid())
+    {
+        return false;
+    }
+
+    OutX = FMath::RoundToInt((*JsonValues)[0]->AsNumber());
+    OutY = FMath::RoundToInt((*JsonValues)[1]->AsNumber());
+    return true;
+}
+
+/**
+ * @brief 解析材质表达式节点坐标。
+ * @param [in] Params 命令参数。
+ * @param [out] OutNodePosX 输出 X 坐标。
+ * @param [out] OutNodePosY 输出 Y 坐标。
+ */
+static void UnrealMCPAssetResolveMaterialNodePosition(
+    const TSharedPtr<FJsonObject>& Params,
+    int32& OutNodePosX,
+    int32& OutNodePosY)
+{
+    OutNodePosX = 0;
+    OutNodePosY = 0;
+
+    if (!Params.IsValid())
+    {
+        return;
+    }
+
+    if (UnrealMCPAssetTryGetIntPointField(Params, TEXT("node_position"), OutNodePosX, OutNodePosY))
+    {
+        return;
+    }
+
+    if (Params->HasTypedField<EJson::Number>(TEXT("node_pos_x")))
+    {
+        OutNodePosX = FMath::RoundToInt(Params->GetNumberField(TEXT("node_pos_x")));
+    }
+    if (Params->HasTypedField<EJson::Number>(TEXT("node_pos_y")))
+    {
+        OutNodePosY = FMath::RoundToInt(Params->GetNumberField(TEXT("node_pos_y")));
+    }
+}
+
+/**
+ * @brief 解析材质表达式类。
+ * @param [in] Params 命令参数。
+ * @param [out] OutExpressionClass 解析得到的表达式类型。
+ * @param [out] OutResolvedClassPath 解析出的类路径。
+ * @param [out] OutErrorMessage 失败时输出错误信息。
+ * @return bool 是否解析成功。
+ */
+static bool UnrealMCPAssetResolveMaterialExpressionClass(
+    const TSharedPtr<FJsonObject>& Params,
+    UClass*& OutExpressionClass,
+    FString& OutResolvedClassPath,
+    FString& OutErrorMessage)
+{
+    FString ClassReference;
+    if (!Params->TryGetStringField(TEXT("expression_class"), ClassReference))
+    {
+        if (!Params->TryGetStringField(TEXT("expression_class_path"), ClassReference))
+        {
+            Params->TryGetStringField(TEXT("class_name"), ClassReference);
+        }
+    }
+
+    ClassReference = ClassReference.TrimStartAndEnd();
+    if (ClassReference.IsEmpty())
+    {
+        OutErrorMessage = TEXT("缺少 'expression_class' 参数");
+        return false;
+    }
+
+    TArray<FString> CandidateClassPaths;
+    if (ClassReference.StartsWith(TEXT("/")))
+    {
+        CandidateClassPaths.Add(ClassReference);
+    }
+    else
+    {
+        const FString NormalizedClassName = ClassReference.StartsWith(TEXT("MaterialExpression"))
+            ? ClassReference
+            : TEXT("MaterialExpression") + ClassReference;
+        CandidateClassPaths.Add(TEXT("/Script/Engine.") + NormalizedClassName);
+        CandidateClassPaths.Add(TEXT("/Script/Engine.") + ClassReference);
+    }
+
+    for (const FString& CandidateClassPath : CandidateClassPaths)
+    {
+        if (UClass* LoadedClass = LoadObject<UClass>(nullptr, *CandidateClassPath))
+        {
+            if (!LoadedClass->IsChildOf(UMaterialExpression::StaticClass()))
+            {
+                OutErrorMessage = FString::Printf(TEXT("类型不是材质表达式: %s"), *LoadedClass->GetPathName());
+                return false;
+            }
+
+            OutExpressionClass = LoadedClass;
+            OutResolvedClassPath = LoadedClass->GetPathName();
+            return true;
+        }
+    }
+
+    for (TObjectIterator<UClass> It; It; ++It)
+    {
+        UClass* CandidateClass = *It;
+        if (!CandidateClass || !CandidateClass->IsChildOf(UMaterialExpression::StaticClass()))
+        {
+            continue;
+        }
+
+        if (CandidateClass->GetName().Equals(ClassReference, ESearchCase::IgnoreCase) ||
+            CandidateClass->GetName().Equals(TEXT("MaterialExpression") + ClassReference, ESearchCase::IgnoreCase))
+        {
+            OutExpressionClass = CandidateClass;
+            OutResolvedClassPath = CandidateClass->GetPathName();
+            return true;
+        }
+    }
+
+    OutErrorMessage = FString::Printf(TEXT("未找到材质表达式类型: %s"), *ClassReference);
+    return false;
+}
+
+static FString UnrealMCPAssetGetRequestedWorldType(const TSharedPtr<FJsonObject>& Params)
+{
+    bool bUsePIEWorld = false;
+    if (Params.IsValid() && Params->TryGetBoolField(TEXT("use_pie_world"), bUsePIEWorld))
+    {
+        return bUsePIEWorld ? TEXT("pie") : TEXT("editor");
+    }
+
+    FString RequestedWorldType = TEXT("auto");
+    if (Params.IsValid())
+    {
+        Params->TryGetStringField(TEXT("world_type"), RequestedWorldType);
+    }
+
+    RequestedWorldType = RequestedWorldType.TrimStartAndEnd().ToLower();
+    if (RequestedWorldType.IsEmpty())
+    {
+        RequestedWorldType = TEXT("auto");
+    }
+    return RequestedWorldType;
+}
+
+static UWorld* UnrealMCPAssetGetEditorWorld()
+{
+    return GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+}
+
+static UWorld* UnrealMCPAssetGetPIEWorld()
+{
+    if (GEditor && GEditor->PlayWorld)
+    {
+        return GEditor->PlayWorld;
+    }
+
+    if (!GEngine)
+    {
+        return nullptr;
+    }
+
+    for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
+    {
+        if ((WorldContext.WorldType == EWorldType::PIE || WorldContext.WorldType == EWorldType::GamePreview) &&
+            WorldContext.World() != nullptr)
+        {
+            return WorldContext.World();
+        }
+    }
+
+    return nullptr;
+}
+
+static UWorld* UnrealMCPAssetResolveWorldByParams(
+    const TSharedPtr<FJsonObject>& Params,
+    FString& OutResolvedWorldType,
+    FString& OutErrorMessage)
+{
+    const FString RequestedWorldType = UnrealMCPAssetGetRequestedWorldType(Params);
+    if (RequestedWorldType == TEXT("editor"))
+    {
+        UWorld* EditorWorld = UnrealMCPAssetGetEditorWorld();
+        if (!EditorWorld)
+        {
+            OutErrorMessage = TEXT("获取编辑器世界失败");
+            return nullptr;
+        }
+
+        OutResolvedWorldType = TEXT("editor");
+        return EditorWorld;
+    }
+
+    if (RequestedWorldType == TEXT("pie"))
+    {
+        UWorld* PIEWorld = UnrealMCPAssetGetPIEWorld();
+        if (!PIEWorld)
+        {
+            OutErrorMessage = TEXT("PIE 世界未运行，请先启动 Play-In-Editor");
+            return nullptr;
+        }
+
+        OutResolvedWorldType = TEXT("pie");
+        return PIEWorld;
+    }
+
+    if (RequestedWorldType == TEXT("auto"))
+    {
+        if (UWorld* PIEWorld = UnrealMCPAssetGetPIEWorld())
+        {
+            OutResolvedWorldType = TEXT("pie");
+            return PIEWorld;
+        }
+
+        if (UWorld* EditorWorld = UnrealMCPAssetGetEditorWorld())
+        {
+            OutResolvedWorldType = TEXT("editor");
+            return EditorWorld;
+        }
+
+        OutErrorMessage = TEXT("自动模式下无法解析到可用世界");
+        return nullptr;
+    }
+
+    OutErrorMessage = FString::Printf(TEXT("无效的 world_type: %s，可选值为 auto、editor、pie"), *RequestedWorldType);
+    return nullptr;
+}
+
+static AActor* UnrealMCPAssetResolveActorByParams(
+    const TSharedPtr<FJsonObject>& Params,
+    UWorld*& OutWorld,
+    FString& OutResolvedWorldType,
+    FString& OutErrorMessage)
+{
+    OutWorld = UnrealMCPAssetResolveWorldByParams(Params, OutResolvedWorldType, OutErrorMessage);
+    if (!OutWorld)
+    {
+        return nullptr;
+    }
+
+    TArray<AActor*> AllActors;
+    UGameplayStatics::GetAllActorsOfClass(OutWorld, AActor::StaticClass(), AllActors);
+
+    FString ActorPath;
+    if (Params->TryGetStringField(TEXT("actor_path"), ActorPath) && !ActorPath.IsEmpty())
+    {
+        for (AActor* Actor : AllActors)
+        {
+            if (Actor && Actor->GetPathName() == ActorPath)
+            {
+                return Actor;
+            }
+        }
+
+        OutErrorMessage = FString::Printf(TEXT("未找到 actor_path 对应的 Actor: %s"), *ActorPath);
+        return nullptr;
+    }
+
+    FString ActorName;
+    if (!Params->TryGetStringField(TEXT("name"), ActorName) || ActorName.TrimStartAndEnd().IsEmpty())
+    {
+        OutErrorMessage = TEXT("缺少 'name' 或 'actor_path' 参数");
+        return nullptr;
+    }
+
+    for (AActor* Actor : AllActors)
+    {
+        if (Actor && Actor->GetName() == ActorName)
+        {
+            return Actor;
+        }
+    }
+
+    OutErrorMessage = FString::Printf(TEXT("未找到 Actor: %s"), *ActorName);
+    return nullptr;
+}
+
+static void UnrealMCPAssetCollectMeshComponents(AActor* Actor, TArray<UMeshComponent*>& OutMeshComponents)
+{
+    OutMeshComponents.Reset();
+    if (!Actor)
+    {
+        return;
+    }
+
+    Actor->GetComponents<UMeshComponent>(OutMeshComponents);
+    OutMeshComponents.Sort([](const UMeshComponent& A, const UMeshComponent& B)
+    {
+        return A.GetName() < B.GetName();
+    });
+}
+
+static UMeshComponent* UnrealMCPAssetResolveMeshComponent(
+    AActor* Actor,
+    const FString& ComponentName,
+    FString& OutErrorMessage)
+{
+    TArray<UMeshComponent*> MeshComponents;
+    UnrealMCPAssetCollectMeshComponents(Actor, MeshComponents);
+
+    if (ComponentName.TrimStartAndEnd().IsEmpty())
+    {
+        if (MeshComponents.Num() == 1)
+        {
+            return MeshComponents[0];
+        }
+
+        if (MeshComponents.Num() == 0)
+        {
+            OutErrorMessage = TEXT("目标 Actor 上没有 MeshComponent");
+            return nullptr;
+        }
+
+        TArray<FString> ComponentNames;
+        ComponentNames.Reserve(MeshComponents.Num());
+        for (const UMeshComponent* MeshComponent : MeshComponents)
+        {
+            ComponentNames.Add(MeshComponent ? MeshComponent->GetName() : FString());
+        }
+
+        OutErrorMessage = FString::Printf(
+            TEXT("目标 Actor 上存在多个 MeshComponent，请指定 component_name: %s"),
+            *FString::Join(ComponentNames, TEXT(", ")));
+        return nullptr;
+    }
+
+    for (UMeshComponent* MeshComponent : MeshComponents)
+    {
+        if (MeshComponent && MeshComponent->GetName() == ComponentName)
+        {
+            return MeshComponent;
+        }
+    }
+
+    OutErrorMessage = FString::Printf(TEXT("未找到 MeshComponent: %s"), *ComponentName);
+    return nullptr;
+}
+
+static bool UnrealMCPAssetResolveMaterialAssignmentFromParams(
+    const TSharedPtr<FJsonObject>& Params,
+    UMaterialInterface*& OutMaterial,
+    FAssetData& OutAssetData,
+    FString& OutErrorMessage)
+{
+    FString MaterialReference;
+    if (!Params->TryGetStringField(TEXT("material_asset_path"), MaterialReference))
+    {
+        if (!Params->TryGetStringField(TEXT("material"), MaterialReference))
+        {
+            Params->TryGetStringField(TEXT("material_path"), MaterialReference);
+        }
+    }
+
+    if (MaterialReference.TrimStartAndEnd().IsEmpty())
+    {
+        OutErrorMessage = TEXT("缺少 'material_asset_path' 参数");
+        return false;
+    }
+
+    if (!ResolveAssetReference(MaterialReference, OutAssetData, OutErrorMessage))
+    {
+        return false;
+    }
+
+    OutMaterial = Cast<UMaterialInterface>(OutAssetData.GetAsset());
+    if (!OutMaterial)
+    {
+        OutErrorMessage = FString::Printf(TEXT("资源不是材质或材质实例: %s"), *OutAssetData.GetObjectPathString());
+        return false;
+    }
+
+    return true;
+}
+
+static bool UnrealMCPAssetResolveMaterialSlotIndex(
+    UMeshComponent* MeshComponent,
+    const TSharedPtr<FJsonObject>& Params,
+    int32& OutSlotIndex,
+    FString& OutSlotName,
+    bool bRequireExplicitSlot,
+    FString& OutErrorMessage)
+{
+    OutSlotIndex = 0;
+    OutSlotName.Reset();
+
+    if (!MeshComponent)
+    {
+        OutErrorMessage = TEXT("MeshComponent 无效");
+        return false;
+    }
+
+    bool bHasSlotIndex = false;
+    if (Params->HasTypedField<EJson::Number>(TEXT("slot_index")))
+    {
+        OutSlotIndex = static_cast<int32>(Params->GetNumberField(TEXT("slot_index")));
+        bHasSlotIndex = true;
+    }
+
+    bool bHasSlotName = false;
+    Params->TryGetStringField(TEXT("slot_name"), OutSlotName);
+    OutSlotName = OutSlotName.TrimStartAndEnd();
+    bHasSlotName = !OutSlotName.IsEmpty();
+
+    if (bRequireExplicitSlot && !bHasSlotIndex && !bHasSlotName)
+    {
+        OutErrorMessage = TEXT("缺少 'slot_index' 或 'slot_name' 参数");
+        return false;
+    }
+
+    const TArray<FName> SlotNames = MeshComponent->GetMaterialSlotNames();
+    if (bHasSlotName)
+    {
+        bool bFoundSlot = false;
+        for (int32 Index = 0; Index < SlotNames.Num(); ++Index)
+        {
+            if (SlotNames[Index].ToString().Equals(OutSlotName, ESearchCase::IgnoreCase))
+            {
+                OutSlotIndex = Index;
+                OutSlotName = SlotNames[Index].ToString();
+                bFoundSlot = true;
+                break;
+            }
+        }
+
+        if (!bFoundSlot)
+        {
+            TArray<FString> AvailableSlotNames;
+            AvailableSlotNames.Reserve(SlotNames.Num());
+            for (const FName& SlotName : SlotNames)
+            {
+                AvailableSlotNames.Add(SlotName.ToString());
+            }
+
+            OutErrorMessage = FString::Printf(
+                TEXT("组件 %s 上未找到材质槽 %s，可用槽位: %s"),
+                *MeshComponent->GetName(),
+                *OutSlotName,
+                AvailableSlotNames.Num() > 0 ? *FString::Join(AvailableSlotNames, TEXT(", ")) : TEXT("<空>"));
+            return false;
+        }
+    }
+
+    if (OutSlotIndex < 0)
+    {
+        OutErrorMessage = TEXT("'slot_index' 不能小于 0");
+        return false;
+    }
+
+    if (SlotNames.IsValidIndex(OutSlotIndex))
+    {
+        OutSlotName = SlotNames[OutSlotIndex].ToString();
+    }
+
+    const int32 MaterialCount = MeshComponent->GetNumMaterials();
+    if (MaterialCount <= OutSlotIndex && !SlotNames.IsValidIndex(OutSlotIndex))
+    {
+        OutErrorMessage = FString::Printf(
+            TEXT("组件 %s 没有可用的材质槽 %d"),
+            *MeshComponent->GetName(),
+            OutSlotIndex);
+        return false;
+    }
+
+    return true;
+}
+
+static void UnrealMCPAssetMarkMaterialAssignmentDirty(
+    AActor* Actor,
+    UMeshComponent* MeshComponent,
+    const FString& ResolvedWorldType)
+{
+    if (ResolvedWorldType != TEXT("editor"))
+    {
+        return;
+    }
+
+    if (Actor)
+    {
+        Actor->Modify();
+        Actor->MarkPackageDirty();
+    }
+
+    if (MeshComponent)
+    {
+        MeshComponent->Modify();
+        MeshComponent->MarkRenderStateDirty();
+        MeshComponent->MarkPackageDirty();
+    }
+}
+
+static TSharedPtr<FJsonObject> UnrealMCPAssetCreateMaterialSlotResult(
+    UMeshComponent* MeshComponent,
+    int32 SlotIndex,
+    const FString& SlotName,
+    UMaterialInterface* PreviousMaterial,
+    UMaterialInterface* CurrentMaterial)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("component_name"), MeshComponent ? MeshComponent->GetName() : FString());
+    Result->SetStringField(TEXT("component_path"), MeshComponent ? MeshComponent->GetPathName() : FString());
+    Result->SetNumberField(TEXT("slot_index"), SlotIndex);
+    Result->SetStringField(TEXT("slot_name"), SlotName);
+    Result->SetStringField(TEXT("previous_material_name"), PreviousMaterial ? PreviousMaterial->GetName() : FString());
+    Result->SetStringField(TEXT("previous_material_path"), PreviousMaterial ? PreviousMaterial->GetPathName() : FString());
+    Result->SetStringField(TEXT("material_name"), CurrentMaterial ? CurrentMaterial->GetName() : FString());
+    Result->SetStringField(TEXT("material_path"), CurrentMaterial ? CurrentMaterial->GetPathName() : FString());
+    return Result;
+}
+
+/**
+ * @brief 读取材质表达式的输出名列表。
+ * @param [in] Expression 目标表达式。
+ * @return TArray<TSharedPtr<FJsonValue>> 输出名数组。
+ */
+static TArray<TSharedPtr<FJsonValue>> UnrealMCPAssetGetMaterialExpressionOutputNames(UMaterialExpression* Expression)
+{
+    TArray<TSharedPtr<FJsonValue>> Result;
+    if (!Expression)
+    {
+        return Result;
+    }
+
+    TArray<FExpressionOutput>& Outputs = Expression->GetOutputs();
+    Result.Reserve(Outputs.Num());
+    for (int32 OutputIndex = 0; OutputIndex < Outputs.Num(); ++OutputIndex)
+    {
+        const FExpressionOutput& Output = Outputs[OutputIndex];
+        const FString OutputName = Output.OutputName.IsNone()
+            ? FString::Printf(TEXT("output_%d"), OutputIndex)
+            : Output.OutputName.ToString();
+        Result.Add(MakeShared<FJsonValueString>(OutputName));
+    }
+
+    return Result;
+}
+
+/**
+ * @brief 读取材质表达式的输入名列表。
+ * @param [in] Expression 目标表达式。
+ * @return TArray<TSharedPtr<FJsonValue>> 输入名数组。
+ */
+static TArray<TSharedPtr<FJsonValue>> UnrealMCPAssetGetMaterialExpressionInputNames(UMaterialExpression* Expression)
+{
+    TArray<TSharedPtr<FJsonValue>> Result;
+    if (!Expression)
+    {
+        return Result;
+    }
+
+    const int32 InputCount = Expression->CountInputs();
+    Result.Reserve(InputCount);
+    for (int32 InputIndex = 0; InputIndex < InputCount; ++InputIndex)
+    {
+        const FName InputName = Expression->GetInputName(InputIndex);
+        Result.Add(MakeShared<FJsonValueString>(InputName.IsNone() ? FString() : InputName.ToString()));
+    }
+
+    return Result;
+}
+
+/**
+ * @brief 查找表达式在材质表达式数组中的索引。
+ * @param [in] Material 所属材质。
+ * @param [in] Expression 目标表达式。
+ * @return int32 找到时返回索引，否则返回 `INDEX_NONE`。
+ */
+static int32 UnrealMCPAssetFindMaterialExpressionIndex(UMaterial* Material, UMaterialExpression* Expression)
+{
+    if (!Material || !Expression)
+    {
+        return INDEX_NONE;
+    }
+
+    const TConstArrayView<TObjectPtr<UMaterialExpression>> Expressions = Material->GetExpressions();
+    for (int32 ExpressionIndex = 0; ExpressionIndex < Expressions.Num(); ++ExpressionIndex)
+    {
+        if (Expressions[ExpressionIndex] == Expression)
+        {
+            return ExpressionIndex;
+        }
+    }
+
+    return INDEX_NONE;
+}
+
+/**
+ * @brief 构建材质表达式摘要对象。
+ * @param [in] Material 所属材质。
+ * @param [in] Expression 目标表达式。
+ * @return TSharedPtr<FJsonObject> 表达式摘要。
+ */
+static TSharedPtr<FJsonObject> UnrealMCPAssetCreateMaterialExpressionObject(
+    UMaterial* Material,
+    UMaterialExpression* Expression)
+{
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("material_name"), Material ? Material->GetName() : FString());
+    Result->SetStringField(TEXT("material_path"), Material ? Material->GetPathName() : FString());
+    Result->SetStringField(TEXT("expression_name"), Expression ? Expression->GetName() : FString());
+    Result->SetStringField(TEXT("expression_path"), Expression ? Expression->GetPathName() : FString());
+    Result->SetStringField(TEXT("expression_class"), Expression ? Expression->GetClass()->GetName() : FString());
+    Result->SetStringField(TEXT("expression_class_path"), Expression ? Expression->GetClass()->GetPathName() : FString());
+    Result->SetNumberField(TEXT("expression_index"), UnrealMCPAssetFindMaterialExpressionIndex(Material, Expression));
+    Result->SetNumberField(TEXT("node_pos_x"), Expression ? Expression->MaterialExpressionEditorX : 0);
+    Result->SetNumberField(TEXT("node_pos_y"), Expression ? Expression->MaterialExpressionEditorY : 0);
+    Result->SetArrayField(TEXT("input_names"), UnrealMCPAssetGetMaterialExpressionInputNames(Expression));
+    Result->SetArrayField(TEXT("output_names"), UnrealMCPAssetGetMaterialExpressionOutputNames(Expression));
+    Result->SetNumberField(TEXT("input_count"), Expression ? Expression->CountInputs() : 0);
+    Result->SetNumberField(TEXT("output_count"), Expression ? Expression->GetOutputs().Num() : 0);
+    return Result;
+}
+
+/**
+ * @brief 在材质内解析指定表达式。
+ * @param [in] Material 所属材质。
+ * @param [in] Params 命令参数。
+ * @param [in] Prefix 字段前缀，例如 `from_` 或 `to_`。
+ * @param [out] OutExpression 解析得到的表达式。
+ * @param [out] OutErrorMessage 失败时输出错误信息。
+ * @return bool 是否解析成功。
+ */
+static bool UnrealMCPAssetResolveMaterialExpressionFromParams(
+    UMaterial* Material,
+    const TSharedPtr<FJsonObject>& Params,
+    const FString& Prefix,
+    UMaterialExpression*& OutExpression,
+    FString& OutErrorMessage)
+{
+    OutExpression = nullptr;
+    if (!Material)
+    {
+        OutErrorMessage = TEXT("材质无效");
+        return false;
+    }
+
+    FString ExpressionPath;
+    Params->TryGetStringField(Prefix + TEXT("expression_path"), ExpressionPath);
+    ExpressionPath = ExpressionPath.TrimStartAndEnd();
+    if (!ExpressionPath.IsEmpty())
+    {
+        for (UMaterialExpression* Expression : Material->GetExpressions())
+        {
+            if (Expression && Expression->GetPathName() == ExpressionPath)
+            {
+                OutExpression = Expression;
+                return true;
+            }
+        }
+
+        OutErrorMessage = FString::Printf(TEXT("未找到表达式路径 %s"), *ExpressionPath);
+        return false;
+    }
+
+    if (Params->HasTypedField<EJson::Number>(Prefix + TEXT("expression_index")))
+    {
+        const int32 ExpressionIndex = static_cast<int32>(Params->GetNumberField(Prefix + TEXT("expression_index")));
+        const TConstArrayView<TObjectPtr<UMaterialExpression>> Expressions = Material->GetExpressions();
+        if (!Expressions.IsValidIndex(ExpressionIndex) || !Expressions[ExpressionIndex])
+        {
+            OutErrorMessage = FString::Printf(TEXT("表达式索引越界: %d"), ExpressionIndex);
+            return false;
+        }
+
+        OutExpression = Expressions[ExpressionIndex];
+        return true;
+    }
+
+    FString ExpressionName;
+    Params->TryGetStringField(Prefix + TEXT("expression_name"), ExpressionName);
+    ExpressionName = ExpressionName.TrimStartAndEnd();
+    if (ExpressionName.IsEmpty())
+    {
+        OutErrorMessage = FString::Printf(
+            TEXT("缺少 '%sexpression_path'、'%sexpression_index' 或 '%sexpression_name' 参数"),
+            *Prefix,
+            *Prefix,
+            *Prefix);
+        return false;
+    }
+
+    TArray<UMaterialExpression*> MatchedExpressions;
+    for (UMaterialExpression* Expression : Material->GetExpressions())
+    {
+        if (Expression && Expression->GetName().Equals(ExpressionName, ESearchCase::IgnoreCase))
+        {
+            MatchedExpressions.Add(Expression);
+        }
+    }
+
+    if (MatchedExpressions.Num() == 1)
+    {
+        OutExpression = MatchedExpressions[0];
+        return true;
+    }
+
+    if (MatchedExpressions.Num() > 1)
+    {
+        TArray<FString> CandidatePaths;
+        CandidatePaths.Reserve(MatchedExpressions.Num());
+        for (const UMaterialExpression* Expression : MatchedExpressions)
+        {
+            CandidatePaths.Add(Expression ? Expression->GetPathName() : FString());
+        }
+
+        OutErrorMessage = FString::Printf(
+            TEXT("表达式名称 %s 匹配到多个节点，请改用 expression_path 或 expression_index: %s"),
+            *ExpressionName,
+            *FString::Join(CandidatePaths, TEXT(", ")));
+        return false;
+    }
+
+    OutErrorMessage = FString::Printf(TEXT("未找到表达式名称: %s"), *ExpressionName);
+    return false;
+}
+
+/**
+ * @brief 把 JSON 数值数组转成 ImportText 结构体文本。
+ * @param [in] StructName 结构体类型名。
+ * @param [in] JsonValues 数组值。
+ * @param [out] OutImportText 生成的 ImportText。
+ * @return bool 是否生成成功。
+ */
+static bool UnrealMCPAssetBuildStructImportTextFromArray(
+    const FString& StructName,
+    const TArray<TSharedPtr<FJsonValue>>& JsonValues,
+    FString& OutImportText)
+{
+    if (StructName == TEXT("Vector2D") && JsonValues.Num() >= 2)
+    {
+        OutImportText = FString::Printf(
+            TEXT("(X=%s,Y=%s)"),
+            *FString::SanitizeFloat(JsonValues[0]->AsNumber()),
+            *FString::SanitizeFloat(JsonValues[1]->AsNumber()));
+        return true;
+    }
+
+    if ((StructName == TEXT("Vector") || StructName == TEXT("Vector3f")) && JsonValues.Num() >= 3)
+    {
+        OutImportText = FString::Printf(
+            TEXT("(X=%s,Y=%s,Z=%s)"),
+            *FString::SanitizeFloat(JsonValues[0]->AsNumber()),
+            *FString::SanitizeFloat(JsonValues[1]->AsNumber()),
+            *FString::SanitizeFloat(JsonValues[2]->AsNumber()));
+        return true;
+    }
+
+    if ((StructName == TEXT("LinearColor") || StructName == TEXT("Color")) && JsonValues.Num() >= 3)
+    {
+        const double Alpha = JsonValues.Num() >= 4 ? JsonValues[3]->AsNumber() : 1.0;
+        OutImportText = FString::Printf(
+            TEXT("(R=%s,G=%s,B=%s,A=%s)"),
+            *FString::SanitizeFloat(JsonValues[0]->AsNumber()),
+            *FString::SanitizeFloat(JsonValues[1]->AsNumber()),
+            *FString::SanitizeFloat(JsonValues[2]->AsNumber()),
+            *FString::SanitizeFloat(Alpha));
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * @brief 把 JSON 对象转成 ImportText 结构体文本。
+ * @param [in] StructName 结构体类型名。
+ * @param [in] JsonObject 对象值。
+ * @param [out] OutImportText 生成的 ImportText。
+ * @return bool 是否生成成功。
+ */
+static bool UnrealMCPAssetBuildStructImportTextFromObject(
+    const FString& StructName,
+    const TSharedPtr<FJsonObject>& JsonObject,
+    FString& OutImportText)
+{
+    if (!JsonObject.IsValid())
+    {
+        return false;
+    }
+
+    double First = 0.0;
+    double Second = 0.0;
+    double Third = 0.0;
+    double Fourth = 1.0;
+
+    if (StructName == TEXT("Vector2D") &&
+        JsonObject->TryGetNumberField(TEXT("X"), First) &&
+        JsonObject->TryGetNumberField(TEXT("Y"), Second))
+    {
+        OutImportText = FString::Printf(TEXT("(X=%s,Y=%s)"), *FString::SanitizeFloat(First), *FString::SanitizeFloat(Second));
+        return true;
+    }
+
+    if ((StructName == TEXT("Vector") || StructName == TEXT("Vector3f")) &&
+        JsonObject->TryGetNumberField(TEXT("X"), First) &&
+        JsonObject->TryGetNumberField(TEXT("Y"), Second) &&
+        JsonObject->TryGetNumberField(TEXT("Z"), Third))
+    {
+        OutImportText = FString::Printf(
+            TEXT("(X=%s,Y=%s,Z=%s)"),
+            *FString::SanitizeFloat(First),
+            *FString::SanitizeFloat(Second),
+            *FString::SanitizeFloat(Third));
+        return true;
+    }
+
+    if ((StructName == TEXT("LinearColor") || StructName == TEXT("Color")) &&
+        JsonObject->TryGetNumberField(TEXT("R"), First) &&
+        JsonObject->TryGetNumberField(TEXT("G"), Second) &&
+        JsonObject->TryGetNumberField(TEXT("B"), Third))
+    {
+        JsonObject->TryGetNumberField(TEXT("A"), Fourth);
+        OutImportText = FString::Printf(
+            TEXT("(R=%s,G=%s,B=%s,A=%s)"),
+            *FString::SanitizeFloat(First),
+            *FString::SanitizeFloat(Second),
+            *FString::SanitizeFloat(Third),
+            *FString::SanitizeFloat(Fourth));
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * @brief 构造材质表达式属性写入所需的 ImportText 文本。
+ * @param [in] Property 目标属性。
+ * @param [in] Value JSON 值。
+ * @param [out] OutImportText 生成的 ImportText。
+ * @param [out] OutErrorMessage 失败时输出错误信息。
+ * @return bool 是否转换成功。
+ */
+static bool UnrealMCPAssetBuildImportTextForProperty(
+    FProperty* Property,
+    const TSharedPtr<FJsonValue>& Value,
+    FString& OutImportText,
+    FString& OutErrorMessage)
+{
+    if (!Property || !Value.IsValid())
+    {
+        OutErrorMessage = TEXT("属性或输入值无效");
+        return false;
+    }
+
+    switch (Value->Type)
+    {
+    case EJson::String:
+        OutImportText = Value->AsString();
+        return true;
+    case EJson::Number:
+        OutImportText = FString::SanitizeFloat(Value->AsNumber());
+        return true;
+    case EJson::Boolean:
+        OutImportText = Value->AsBool() ? TEXT("True") : TEXT("False");
+        return true;
+    case EJson::Null:
+        OutImportText = TEXT("None");
+        return true;
+    case EJson::Array:
+        if (FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+        {
+            if (UnrealMCPAssetBuildStructImportTextFromArray(
+                StructProperty->Struct ? StructProperty->Struct->GetName() : FString(),
+                Value->AsArray(),
+                OutImportText))
+            {
+                return true;
+            }
+        }
+        break;
+    case EJson::Object:
+        if (FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+        {
+            if (UnrealMCPAssetBuildStructImportTextFromObject(
+                StructProperty->Struct ? StructProperty->Struct->GetName() : FString(),
+                Value->AsObject(),
+                OutImportText))
+            {
+                return true;
+            }
+        }
+        break;
+    case EJson::None:
+    default:
+        break;
+    }
+
+    OutErrorMessage = FString::Printf(TEXT("属性 %s 的值格式当前不支持"), *Property->GetName());
+    return false;
+}
+
+/**
+ * @brief 设置材质表达式属性。
+ * @param [in] Expression 目标表达式。
+ * @param [in] PropertyName 属性名。
+ * @param [in] Value JSON 值。
+ * @param [out] OutErrorMessage 失败时输出错误信息。
+ * @return bool 是否设置成功。
+ */
+static bool UnrealMCPAssetSetMaterialExpressionProperty(
+    UMaterialExpression* Expression,
+    const FString& PropertyName,
+    const TSharedPtr<FJsonValue>& Value,
+    FString& OutErrorMessage)
+{
+    if (!Expression)
+    {
+        OutErrorMessage = TEXT("材质表达式无效");
+        return false;
+    }
+
+    FString CommonErrorMessage;
+    if (FUnrealMCPCommonUtils::SetObjectProperty(Expression, PropertyName, Value, CommonErrorMessage))
+    {
+        return true;
+    }
+
+    FProperty* Property = Expression->GetClass()->FindPropertyByName(*PropertyName);
+    if (!Property)
+    {
+        OutErrorMessage = FString::Printf(TEXT("表达式属性不存在: %s"), *PropertyName);
+        return false;
+    }
+
+    void* PropertyAddress = Property->ContainerPtrToValuePtr<void>(Expression);
+
+    if (FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property))
+    {
+        FString ObjectReference;
+        if (Value->Type == EJson::String)
+        {
+            ObjectReference = Value->AsString();
+        }
+        else if (Value->Type == EJson::Object)
+        {
+            const TSharedPtr<FJsonObject> ObjectValue = Value->AsObject();
+            if (ObjectValue.IsValid())
+            {
+                if (!ObjectValue->TryGetStringField(TEXT("asset_path"), ObjectReference))
+                {
+                    if (!ObjectValue->TryGetStringField(TEXT("object_path"), ObjectReference))
+                    {
+                        ObjectValue->TryGetStringField(TEXT("name"), ObjectReference);
+                    }
+                }
+            }
+        }
+
+        ObjectReference = ObjectReference.TrimStartAndEnd();
+        if (!ObjectReference.IsEmpty())
+        {
+            FAssetData ReferencedAssetData;
+            FString ResolveErrorMessage;
+            if (!ResolveAssetReference(ObjectReference, ReferencedAssetData, ResolveErrorMessage))
+            {
+                OutErrorMessage = ResolveErrorMessage;
+                return false;
+            }
+
+            UObject* ReferencedObject = ReferencedAssetData.GetAsset();
+            if (!ReferencedObject || !ReferencedObject->IsA(ObjectProperty->PropertyClass))
+            {
+                OutErrorMessage = FString::Printf(
+                    TEXT("属性 %s 需要类型 %s，但给到的是 %s"),
+                    *PropertyName,
+                    *ObjectProperty->PropertyClass->GetName(),
+                    ReferencedObject ? *ReferencedObject->GetClass()->GetName() : TEXT("<空>"));
+                return false;
+            }
+
+            ObjectProperty->SetObjectPropertyValue(PropertyAddress, ReferencedObject);
+            return true;
+        }
+    }
+
+    FString ImportText;
+    if (!UnrealMCPAssetBuildImportTextForProperty(Property, Value, ImportText, OutErrorMessage))
+    {
+        return false;
+    }
+
+    if (Property->ImportText_Direct(*ImportText, PropertyAddress, Expression, PPF_None) == nullptr)
+    {
+        OutErrorMessage = FString::Printf(TEXT("表达式属性 %s 导入失败，输入值=%s"), *PropertyName, *ImportText);
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief 批量应用材质表达式属性覆写。
+ * @param [in] Params 命令参数。
+ * @param [in] Expression 目标表达式。
+ * @param [out] OutAppliedProperties 成功应用的属性列表。
+ * @param [out] OutErrorMessage 失败时输出错误信息。
+ * @return bool 是否应用成功。
+ */
+static bool UnrealMCPAssetApplyMaterialExpressionPropertyOverrides(
+    const TSharedPtr<FJsonObject>& Params,
+    UMaterialExpression* Expression,
+    TArray<TSharedPtr<FJsonValue>>& OutAppliedProperties,
+    FString& OutErrorMessage)
+{
+    OutAppliedProperties.Reset();
+
+    const TSharedPtr<FJsonObject>* PropertyValuesObject = nullptr;
+    if (!Params.IsValid() || !Params->TryGetObjectField(TEXT("property_values"), PropertyValuesObject) ||
+        !PropertyValuesObject || !(*PropertyValuesObject).IsValid())
+    {
+        return true;
+    }
+
+    TArray<FString> PropertyNames;
+    (*PropertyValuesObject)->Values.GetKeys(PropertyNames);
+    PropertyNames.Sort();
+
+    for (const FString& PropertyName : PropertyNames)
+    {
+        const TSharedPtr<FJsonValue> PropertyValue = (*PropertyValuesObject)->Values.FindRef(PropertyName);
+        if (!PropertyValue.IsValid())
+        {
+            continue;
+        }
+
+        if (!UnrealMCPAssetSetMaterialExpressionProperty(Expression, PropertyName, PropertyValue, OutErrorMessage))
+        {
+            OutErrorMessage = FString::Printf(TEXT("设置表达式属性失败 %s: %s"), *PropertyName, *OutErrorMessage);
+            return false;
+        }
+
+        OutAppliedProperties.Add(MakeShared<FJsonValueString>(PropertyName));
+    }
+
+    return true;
+}
+
+/**
+ * @brief 保存材质资产。
+ * @param [in] Material 目标材质。
+ * @param [out] OutErrorMessage 失败时输出错误信息。
+ * @return bool 是否保存成功。
+ */
+static bool UnrealMCPAssetSaveMaterial(UMaterial* Material, FString& OutErrorMessage)
+{
+    if (!Material)
+    {
+        OutErrorMessage = TEXT("材质无效");
+        return false;
+    }
+
+    Material->MarkPackageDirty();
+    if (!UEditorAssetLibrary::SaveAsset(Material->GetPathName(), false))
+    {
+        OutErrorMessage = FString::Printf(TEXT("保存材质失败: %s"), *Material->GetPathName());
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief 解析材质属性枚举。
+ * @param [in] PropertyText 材质属性文本。
+ * @param [out] OutProperty 解析得到的材质属性。
+ * @param [out] OutNormalizedName 归一化后的属性名。
+ * @param [out] OutErrorMessage 失败时输出错误信息。
+ * @return bool 是否解析成功。
+ */
+static bool UnrealMCPAssetResolveMaterialProperty(
+    const FString& PropertyText,
+    EMaterialProperty& OutProperty,
+    FString& OutNormalizedName,
+    FString& OutErrorMessage)
+{
+    const FString Normalized = PropertyText.TrimStartAndEnd().ToLower().Replace(TEXT("-"), TEXT("_")).Replace(TEXT(" "), TEXT("_"));
+    TMap<FString, EMaterialProperty> PropertyMap;
+    PropertyMap.Add(TEXT("base_color"), MP_BaseColor);
+    PropertyMap.Add(TEXT("emissive_color"), MP_EmissiveColor);
+    PropertyMap.Add(TEXT("opacity"), MP_Opacity);
+    PropertyMap.Add(TEXT("opacity_mask"), MP_OpacityMask);
+    PropertyMap.Add(TEXT("metallic"), MP_Metallic);
+    PropertyMap.Add(TEXT("specular"), MP_Specular);
+    PropertyMap.Add(TEXT("roughness"), MP_Roughness);
+    PropertyMap.Add(TEXT("anisotropy"), MP_Anisotropy);
+    PropertyMap.Add(TEXT("normal"), MP_Normal);
+    PropertyMap.Add(TEXT("tangent"), MP_Tangent);
+    PropertyMap.Add(TEXT("world_position_offset"), MP_WorldPositionOffset);
+    PropertyMap.Add(TEXT("subsurface_color"), MP_SubsurfaceColor);
+    PropertyMap.Add(TEXT("ambient_occlusion"), MP_AmbientOcclusion);
+    PropertyMap.Add(TEXT("refraction"), MP_Refraction);
+    PropertyMap.Add(TEXT("pixel_depth_offset"), MP_PixelDepthOffset);
+    PropertyMap.Add(TEXT("shading_model"), MP_ShadingModel);
+    PropertyMap.Add(TEXT("surface_thickness"), MP_SurfaceThickness);
+    PropertyMap.Add(TEXT("displacement"), MP_Displacement);
+    PropertyMap.Add(TEXT("front_material"), MP_FrontMaterial);
+    PropertyMap.Add(TEXT("clear_coat"), MP_CustomData0);
+    PropertyMap.Add(TEXT("clear_coat_roughness"), MP_CustomData1);
+    PropertyMap.Add(TEXT("custom_data_0"), MP_CustomData0);
+    PropertyMap.Add(TEXT("custom_data_1"), MP_CustomData1);
+
+    const EMaterialProperty* MappedProperty = PropertyMap.Find(Normalized);
+    if (!MappedProperty)
+    {
+        OutErrorMessage = FString::Printf(TEXT("不支持的材质属性: %s"), *PropertyText);
+        return false;
+    }
+
+    OutProperty = *MappedProperty;
+    OutNormalizedName = Normalized;
+    return true;
+}
+
 static TSharedPtr<FJsonObject> CreateMaterialParameterObject(
     const FMaterialParameterInfo& ParameterInfo,
     const FMaterialParameterMetadata& Metadata)
@@ -666,6 +1942,111 @@ static bool TryParseRedirectFixupMode(const FString& FixupModeText, ERedirectFix
     }
 
     return false;
+}
+
+static TSharedPtr<FJsonObject> ExecuteAssetConsolidationOperation(
+    const TSharedPtr<FJsonObject>& Params,
+    const FString& TargetPrefix,
+    const FString& SourceFieldName,
+    const FString& OperationKind)
+{
+    UEditorAssetSubsystem* AssetSubsystem = GetAssetSubsystem();
+    if (!AssetSubsystem)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("EditorAssetSubsystem is unavailable"));
+    }
+
+    FAssetData TargetAssetData;
+    FString ErrorMessage;
+    if (!ResolveAssetDataFromPrefixedParams(Params, TargetPrefix, TargetAssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    TArray<FAssetData> SourceAssetDataList;
+    if (!ResolveAssetDataListFromParams(Params, SourceFieldName, SourceAssetDataList, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    if (SourceAssetDataList.Num() == 0)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Missing '%s' parameter"), *SourceFieldName));
+    }
+
+    UObject* TargetAssetObject = TargetAssetData.GetAsset();
+    if (!TargetAssetObject)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Failed to load target asset: %s"), *TargetAssetData.GetObjectPathString()));
+    }
+
+    TArray<FAssetData> UniqueSourceAssetDataList;
+    UniqueSourceAssetDataList.Reserve(SourceAssetDataList.Num());
+
+    TArray<UObject*> SourceAssetObjects;
+    SourceAssetObjects.Reserve(SourceAssetDataList.Num());
+
+    TSet<FString> SeenSourceObjectPaths;
+    for (const FAssetData& SourceAssetData : SourceAssetDataList)
+    {
+        if (!SourceAssetData.IsValid())
+        {
+            continue;
+        }
+
+        if (SourceAssetData.PackageName == TargetAssetData.PackageName)
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Target asset cannot also appear in source assets"));
+        }
+
+        const FString SourceObjectPath = SourceAssetData.GetObjectPathString();
+        if (SeenSourceObjectPaths.Contains(SourceObjectPath))
+        {
+            continue;
+        }
+
+        UObject* SourceAssetObject = SourceAssetData.GetAsset();
+        if (!SourceAssetObject)
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(
+                FString::Printf(TEXT("Failed to load source asset: %s"), *SourceObjectPath));
+        }
+
+        if (SourceAssetObject->GetClass() != TargetAssetObject->GetClass())
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(
+                FString::Printf(
+                    TEXT("Asset class mismatch: %s and %s must have the same class"),
+                    *TargetAssetData.GetObjectPathString(),
+                    *SourceObjectPath));
+        }
+
+        SeenSourceObjectPaths.Add(SourceObjectPath);
+        UniqueSourceAssetDataList.Add(SourceAssetData);
+        SourceAssetObjects.Add(SourceAssetObject);
+    }
+
+    if (SourceAssetObjects.Num() == 0)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No valid source assets were provided"));
+    }
+
+    if (!AssetSubsystem->ConsolidateAssets(TargetAssetObject, SourceAssetObjects))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("%s failed"), *OperationKind));
+    }
+
+    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(TargetAssetData);
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("operation_kind"), OperationKind);
+    Result->SetBoolField(TEXT("deleted_source_assets"), true);
+    Result->SetNumberField(TEXT("source_asset_count"), UniqueSourceAssetDataList.Num());
+    Result->SetNumberField(TEXT("deleted_asset_count"), UniqueSourceAssetDataList.Num());
+    Result->SetArrayField(TEXT("source_assets"), CreateAssetIdentityArray(UniqueSourceAssetDataList));
+    return Result;
 }
 
 static TSharedPtr<FJsonValue> ExportPropertyValue(const FProperty* Property, const void* ValuePtr, int32 Depth)
@@ -1152,6 +2533,9 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCommand(const FString& Co
     if (CommandType == TEXT("rename_asset")) return HandleRenameAsset(Params);
     if (CommandType == TEXT("move_asset")) return HandleMoveAsset(Params);
     if (CommandType == TEXT("delete_asset")) return HandleDeleteAsset(Params);
+    if (CommandType == TEXT("set_asset_metadata")) return HandleSetAssetMetadata(Params);
+    if (CommandType == TEXT("consolidate_assets")) return HandleConsolidateAssets(Params);
+    if (CommandType == TEXT("replace_asset_references")) return HandleReplaceAssetReferences(Params);
     if (CommandType == TEXT("get_selected_assets")) return HandleGetSelectedAssets(Params);
     if (CommandType == TEXT("sync_content_browser_to_assets")) return HandleSyncContentBrowserToAssets(Params);
     if (CommandType == TEXT("save_all_dirty_assets")) return HandleSaveAllDirtyAssets(Params);
@@ -1162,6 +2546,13 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCommand(const FString& Co
     if (CommandType == TEXT("set_material_instance_scalar_parameter")) return HandleSetMaterialInstanceScalarParameter(Params);
     if (CommandType == TEXT("set_material_instance_vector_parameter")) return HandleSetMaterialInstanceVectorParameter(Params);
     if (CommandType == TEXT("set_material_instance_texture_parameter")) return HandleSetMaterialInstanceTextureParameter(Params);
+    if (CommandType == TEXT("assign_material_to_actor")) return HandleAssignMaterialToActor(Params);
+    if (CommandType == TEXT("assign_material_to_component")) return HandleAssignMaterialToComponent(Params);
+    if (CommandType == TEXT("replace_material_slot")) return HandleReplaceMaterialSlot(Params);
+    if (CommandType == TEXT("add_material_expression")) return HandleAddMaterialExpression(Params);
+    if (CommandType == TEXT("connect_material_expressions")) return HandleConnectMaterialExpressions(Params);
+    if (CommandType == TEXT("layout_material_graph")) return HandleLayoutMaterialGraph(Params);
+    if (CommandType == TEXT("compile_material")) return HandleCompileMaterial(Params);
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown asset command: %s"), *CommandType));
 }
 
@@ -1937,6 +3328,150 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleDeleteAsset(const TShared
     return Result;
 }
 
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSetAssetMetadata(const TSharedPtr<FJsonObject>& Params)
+{
+    UEditorAssetSubsystem* AssetSubsystem = GetAssetSubsystem();
+    if (!AssetSubsystem)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("EditorAssetSubsystem is unavailable"));
+    }
+
+    FAssetData AssetData;
+    FString ErrorMessage;
+    if (!ResolveAssetDataFromParams(Params, AssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UObject* AssetObject = AssetData.GetAsset();
+    if (!AssetObject)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Failed to load asset: %s"), *AssetData.GetObjectPathString()));
+    }
+
+    const TSharedPtr<FJsonObject>* MetadataObjectPtr = nullptr;
+    const bool bHasMetadata = Params->TryGetObjectField(TEXT("metadata"), MetadataObjectPtr)
+        && MetadataObjectPtr
+        && MetadataObjectPtr->IsValid();
+
+    TArray<FString> RemoveMetadataKeys;
+    if (!TryGetStringArrayField(Params, TEXT("remove_metadata_keys"), RemoveMetadataKeys))
+    {
+        TryGetStringArrayField(Params, TEXT("remove_keys"), RemoveMetadataKeys);
+    }
+
+    const bool bClearExisting = Params->HasTypedField<EJson::Boolean>(TEXT("clear_existing"))
+        ? Params->GetBoolField(TEXT("clear_existing"))
+        : false;
+    const bool bSaveAsset = Params->HasTypedField<EJson::Boolean>(TEXT("save_asset"))
+        ? Params->GetBoolField(TEXT("save_asset"))
+        : true;
+
+    if (!bHasMetadata && RemoveMetadataKeys.Num() == 0 && !bClearExisting)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            TEXT("At least one of 'metadata', 'remove_metadata_keys' or 'clear_existing' is required"));
+    }
+
+    TMap<FName, FString> ExistingMetadata = AssetSubsystem->GetMetadataTagValues(AssetObject);
+    TSet<FString> RemovedKeySet;
+
+    AssetObject->Modify();
+
+    if (bClearExisting)
+    {
+        for (const TPair<FName, FString>& MetadataPair : ExistingMetadata)
+        {
+            AssetSubsystem->RemoveMetadataTag(AssetObject, MetadataPair.Key);
+            RemovedKeySet.Add(MetadataPair.Key.ToString());
+        }
+    }
+
+    for (const FString& RemoveMetadataKey : RemoveMetadataKeys)
+    {
+        const FString NormalizedKey = RemoveMetadataKey.TrimStartAndEnd();
+        if (NormalizedKey.IsEmpty())
+        {
+            continue;
+        }
+
+        AssetSubsystem->RemoveMetadataTag(AssetObject, FName(*NormalizedKey));
+        RemovedKeySet.Add(NormalizedKey);
+    }
+
+    TArray<FString> UpdatedKeys;
+    if (bHasMetadata)
+    {
+        TArray<FString> MetadataFieldNames;
+        MetadataObjectPtr->Get()->Values.GetKeys(MetadataFieldNames);
+        MetadataFieldNames.Sort();
+
+        for (const FString& MetadataFieldName : MetadataFieldNames)
+        {
+            const TSharedPtr<FJsonValue>* MetadataValuePtr = MetadataObjectPtr->Get()->Values.Find(MetadataFieldName);
+            if (!MetadataValuePtr)
+            {
+                continue;
+            }
+
+            AssetSubsystem->SetMetadataTag(
+                AssetObject,
+                FName(*MetadataFieldName),
+                ConvertJsonValueToMetadataString(*MetadataValuePtr));
+            UpdatedKeys.Add(MetadataFieldName);
+        }
+    }
+
+    if (UPackage* AssetPackage = AssetObject->GetOutermost())
+    {
+        AssetPackage->MarkPackageDirty();
+    }
+
+    const bool bSaved = !bSaveAsset || UEditorAssetLibrary::SaveLoadedAsset(AssetObject, false);
+    if (!bSaved)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            FString::Printf(TEXT("Failed to save asset after metadata update: %s"), *AssetData.GetObjectPathString()));
+    }
+
+    TArray<FString> RemovedKeys = RemovedKeySet.Array();
+    RemovedKeys.Sort();
+
+    const TMap<FName, FString> FinalMetadata = AssetSubsystem->GetMetadataTagValues(AssetObject);
+
+    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetBoolField(TEXT("clear_existing"), bClearExisting);
+    Result->SetBoolField(TEXT("save_asset"), bSaveAsset);
+    Result->SetBoolField(TEXT("saved"), bSaved);
+    Result->SetNumberField(TEXT("updated_count"), UpdatedKeys.Num());
+    Result->SetNumberField(TEXT("removed_count"), RemovedKeys.Num());
+    Result->SetNumberField(TEXT("metadata_count"), FinalMetadata.Num());
+    Result->SetArrayField(TEXT("updated_keys"), ToJsonStringArray(UpdatedKeys));
+    Result->SetArrayField(TEXT("removed_keys"), ToJsonStringArray(RemovedKeys));
+    Result->SetObjectField(TEXT("metadata"), CreateMetadataJsonObject(FinalMetadata));
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleConsolidateAssets(const TSharedPtr<FJsonObject>& Params)
+{
+    return ExecuteAssetConsolidationOperation(
+        Params,
+        TEXT("target_"),
+        TEXT("source_assets"),
+        TEXT("consolidate_assets"));
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleReplaceAssetReferences(const TSharedPtr<FJsonObject>& Params)
+{
+    return ExecuteAssetConsolidationOperation(
+        Params,
+        TEXT("replacement_"),
+        TEXT("assets_to_replace"),
+        TEXT("replace_asset_references"));
+}
+
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetSelectedAssets(const TSharedPtr<FJsonObject>& Params)
 {
     const bool bIncludeTags = Params.IsValid() && Params->HasTypedField<EJson::Boolean>(TEXT("include_tags"))
@@ -2475,5 +4010,393 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSetMaterialInstanceTextur
     Result->SetStringField(TEXT("parameter_name"), ParameterNameText);
     Result->SetStringField(TEXT("texture_name"), CurrentTexture ? CurrentTexture->GetName() : FString());
     Result->SetStringField(TEXT("texture_path"), CurrentTexture ? CurrentTexture->GetPathName() : FString());
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleAssignMaterialToActor(const TSharedPtr<FJsonObject>& Params)
+{
+    UMaterialInterface* Material = nullptr;
+    FAssetData MaterialAssetData;
+    FString ErrorMessage;
+    if (!UnrealMCPAssetResolveMaterialAssignmentFromParams(Params, Material, MaterialAssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UWorld* ResolvedWorld = nullptr;
+    FString ResolvedWorldType;
+    AActor* TargetActor = UnrealMCPAssetResolveActorByParams(Params, ResolvedWorld, ResolvedWorldType, ErrorMessage);
+    if (!TargetActor)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    TArray<UMeshComponent*> MeshComponents;
+    UnrealMCPAssetCollectMeshComponents(TargetActor, MeshComponents);
+    if (MeshComponents.Num() == 0)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("目标 Actor 上没有 MeshComponent"));
+    }
+
+    TArray<TSharedPtr<FJsonValue>> UpdatedComponents;
+    TArray<TSharedPtr<FJsonValue>> SkippedComponents;
+    UpdatedComponents.Reserve(MeshComponents.Num());
+    SkippedComponents.Reserve(MeshComponents.Num());
+
+    for (UMeshComponent* MeshComponent : MeshComponents)
+    {
+        FString SlotName;
+        int32 SlotIndex = 0;
+        FString SlotErrorMessage;
+        if (!UnrealMCPAssetResolveMaterialSlotIndex(MeshComponent, Params, SlotIndex, SlotName, false, SlotErrorMessage))
+        {
+            TSharedPtr<FJsonObject> SkippedObject = MakeShared<FJsonObject>();
+            SkippedObject->SetStringField(TEXT("component_name"), MeshComponent ? MeshComponent->GetName() : FString());
+            SkippedObject->SetStringField(TEXT("component_path"), MeshComponent ? MeshComponent->GetPathName() : FString());
+            SkippedObject->SetStringField(TEXT("reason"), SlotErrorMessage);
+            SkippedComponents.Add(MakeShared<FJsonValueObject>(SkippedObject));
+            continue;
+        }
+
+        UMaterialInterface* PreviousMaterial = MeshComponent->GetMaterial(SlotIndex);
+        UnrealMCPAssetMarkMaterialAssignmentDirty(TargetActor, MeshComponent, ResolvedWorldType);
+        MeshComponent->SetMaterial(SlotIndex, Material);
+        UpdatedComponents.Add(MakeShared<FJsonValueObject>(
+            UnrealMCPAssetCreateMaterialSlotResult(MeshComponent, SlotIndex, SlotName, PreviousMaterial, Material)));
+    }
+
+    if (UpdatedComponents.Num() == 0)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("没有任何组件成功应用材质，请检查材质槽参数"));
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("actor_name"), TargetActor->GetName());
+    Result->SetStringField(TEXT("actor_path"), TargetActor->GetPathName());
+    Result->SetStringField(TEXT("world_type"), ResolvedWorldType);
+    Result->SetStringField(TEXT("material_name"), Material->GetName());
+    Result->SetStringField(TEXT("material_path"), MaterialAssetData.GetObjectPathString());
+    Result->SetArrayField(TEXT("updated_components"), UpdatedComponents);
+    Result->SetArrayField(TEXT("skipped_components"), SkippedComponents);
+    Result->SetNumberField(TEXT("updated_component_count"), UpdatedComponents.Num());
+    Result->SetNumberField(TEXT("skipped_component_count"), SkippedComponents.Num());
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleAssignMaterialToComponent(const TSharedPtr<FJsonObject>& Params)
+{
+    UMaterialInterface* Material = nullptr;
+    FAssetData MaterialAssetData;
+    FString ErrorMessage;
+    if (!UnrealMCPAssetResolveMaterialAssignmentFromParams(Params, Material, MaterialAssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UWorld* ResolvedWorld = nullptr;
+    FString ResolvedWorldType;
+    AActor* TargetActor = UnrealMCPAssetResolveActorByParams(Params, ResolvedWorld, ResolvedWorldType, ErrorMessage);
+    if (!TargetActor)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    FString ComponentName;
+    if (!Params->TryGetStringField(TEXT("component_name"), ComponentName) || ComponentName.TrimStartAndEnd().IsEmpty())
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'component_name' 参数"));
+    }
+
+    UMeshComponent* MeshComponent = UnrealMCPAssetResolveMeshComponent(TargetActor, ComponentName, ErrorMessage);
+    if (!MeshComponent)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    FString SlotName;
+    int32 SlotIndex = 0;
+    if (!UnrealMCPAssetResolveMaterialSlotIndex(MeshComponent, Params, SlotIndex, SlotName, false, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UMaterialInterface* PreviousMaterial = MeshComponent->GetMaterial(SlotIndex);
+    UnrealMCPAssetMarkMaterialAssignmentDirty(TargetActor, MeshComponent, ResolvedWorldType);
+    MeshComponent->SetMaterial(SlotIndex, Material);
+
+    TSharedPtr<FJsonObject> Result = UnrealMCPAssetCreateMaterialSlotResult(MeshComponent, SlotIndex, SlotName, PreviousMaterial, Material);
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("actor_name"), TargetActor->GetName());
+    Result->SetStringField(TEXT("actor_path"), TargetActor->GetPathName());
+    Result->SetStringField(TEXT("world_type"), ResolvedWorldType);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleReplaceMaterialSlot(const TSharedPtr<FJsonObject>& Params)
+{
+    UMaterialInterface* Material = nullptr;
+    FAssetData MaterialAssetData;
+    FString ErrorMessage;
+    if (!UnrealMCPAssetResolveMaterialAssignmentFromParams(Params, Material, MaterialAssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UWorld* ResolvedWorld = nullptr;
+    FString ResolvedWorldType;
+    AActor* TargetActor = UnrealMCPAssetResolveActorByParams(Params, ResolvedWorld, ResolvedWorldType, ErrorMessage);
+    if (!TargetActor)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    FString ComponentName;
+    Params->TryGetStringField(TEXT("component_name"), ComponentName);
+
+    UMeshComponent* MeshComponent = UnrealMCPAssetResolveMeshComponent(TargetActor, ComponentName, ErrorMessage);
+    if (!MeshComponent)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    FString SlotName;
+    int32 SlotIndex = 0;
+    if (!UnrealMCPAssetResolveMaterialSlotIndex(MeshComponent, Params, SlotIndex, SlotName, true, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UMaterialInterface* PreviousMaterial = MeshComponent->GetMaterial(SlotIndex);
+    UnrealMCPAssetMarkMaterialAssignmentDirty(TargetActor, MeshComponent, ResolvedWorldType);
+    MeshComponent->SetMaterial(SlotIndex, Material);
+
+    TSharedPtr<FJsonObject> Result = UnrealMCPAssetCreateMaterialSlotResult(MeshComponent, SlotIndex, SlotName, PreviousMaterial, Material);
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("actor_name"), TargetActor->GetName());
+    Result->SetStringField(TEXT("actor_path"), TargetActor->GetPathName());
+    Result->SetStringField(TEXT("world_type"), ResolvedWorldType);
+    Result->SetStringField(TEXT("requested_material_path"), MaterialAssetData.GetObjectPathString());
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleAddMaterialExpression(const TSharedPtr<FJsonObject>& Params)
+{
+    UMaterial* Material = nullptr;
+    FAssetData MaterialAssetData;
+    FString ErrorMessage;
+    if (!ResolveBaseMaterialFromParams(Params, Material, MaterialAssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UClass* ExpressionClass = nullptr;
+    FString ResolvedClassPath;
+    if (!UnrealMCPAssetResolveMaterialExpressionClass(Params, ExpressionClass, ResolvedClassPath, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    FString SelectedAssetReference;
+    if (!Params->TryGetStringField(TEXT("selected_asset_path"), SelectedAssetReference))
+    {
+        Params->TryGetStringField(TEXT("selected_asset"), SelectedAssetReference);
+    }
+
+    UObject* SelectedAsset = nullptr;
+    if (!SelectedAssetReference.TrimStartAndEnd().IsEmpty())
+    {
+        FAssetData SelectedAssetData;
+        if (!ResolveAssetReference(SelectedAssetReference, SelectedAssetData, ErrorMessage))
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+        }
+        SelectedAsset = SelectedAssetData.GetAsset();
+    }
+
+    int32 NodePosX = 0;
+    int32 NodePosY = 0;
+    UnrealMCPAssetResolveMaterialNodePosition(Params, NodePosX, NodePosY);
+
+    Material->Modify();
+    UMaterialExpression* Expression = UMaterialEditingLibrary::CreateMaterialExpressionEx(
+        Material,
+        nullptr,
+        ExpressionClass,
+        SelectedAsset,
+        NodePosX,
+        NodePosY);
+    if (!Expression)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("创建材质表达式失败"));
+    }
+
+    TArray<TSharedPtr<FJsonValue>> AppliedProperties;
+    if (!UnrealMCPAssetApplyMaterialExpressionPropertyOverrides(Params, Expression, AppliedProperties, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    Expression->PostEditChange();
+    if (!UnrealMCPAssetSaveMaterial(Material, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    TSharedPtr<FJsonObject> Result = UnrealMCPAssetCreateMaterialExpressionObject(Material, Expression);
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("selected_asset_path"), SelectedAsset ? SelectedAsset->GetPathName() : FString());
+    Result->SetStringField(TEXT("resolved_expression_class_path"), ResolvedClassPath);
+    Result->SetArrayField(TEXT("applied_properties"), AppliedProperties);
+    Result->SetNumberField(TEXT("expression_count"), Material->GetExpressions().Num());
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleConnectMaterialExpressions(const TSharedPtr<FJsonObject>& Params)
+{
+    UMaterial* Material = nullptr;
+    FAssetData MaterialAssetData;
+    FString ErrorMessage;
+    if (!ResolveBaseMaterialFromParams(Params, Material, MaterialAssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UMaterialExpression* FromExpression = nullptr;
+    if (!UnrealMCPAssetResolveMaterialExpressionFromParams(Material, Params, TEXT("from_"), FromExpression, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    FString FromOutputName;
+    Params->TryGetStringField(TEXT("from_output_name"), FromOutputName);
+
+    FString MaterialPropertyText;
+    Params->TryGetStringField(TEXT("material_property"), MaterialPropertyText);
+    if (MaterialPropertyText.TrimStartAndEnd().IsEmpty())
+    {
+        Params->TryGetStringField(TEXT("property"), MaterialPropertyText);
+    }
+    MaterialPropertyText = MaterialPropertyText.TrimStartAndEnd();
+
+    const bool bHasMaterialProperty = !MaterialPropertyText.IsEmpty();
+    const bool bHasToExpressionSpecifier =
+        Params->HasField(TEXT("to_expression_path")) ||
+        Params->HasField(TEXT("to_expression_name")) ||
+        Params->HasField(TEXT("to_expression_index"));
+
+    if (bHasMaterialProperty == bHasToExpressionSpecifier)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            TEXT("必须且只能提供一组目标：to_expression_* 或 material_property"));
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetObjectField(TEXT("from_expression"), UnrealMCPAssetCreateMaterialExpressionObject(Material, FromExpression));
+    Result->SetStringField(TEXT("from_output_name"), FromOutputName);
+    Result->SetStringField(TEXT("material_name"), Material->GetName());
+    Result->SetStringField(TEXT("material_path"), MaterialAssetData.GetObjectPathString());
+
+    Material->Modify();
+
+    bool bConnected = false;
+    if (bHasMaterialProperty)
+    {
+        EMaterialProperty MaterialProperty = MP_BaseColor;
+        FString NormalizedPropertyName;
+        if (!UnrealMCPAssetResolveMaterialProperty(MaterialPropertyText, MaterialProperty, NormalizedPropertyName, ErrorMessage))
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+        }
+
+        bConnected = UMaterialEditingLibrary::ConnectMaterialProperty(FromExpression, FromOutputName, MaterialProperty);
+        Result->SetStringField(TEXT("connection_kind"), TEXT("material_property"));
+        Result->SetStringField(TEXT("material_property"), NormalizedPropertyName);
+    }
+    else
+    {
+        UMaterialExpression* ToExpression = nullptr;
+        if (!UnrealMCPAssetResolveMaterialExpressionFromParams(Material, Params, TEXT("to_"), ToExpression, ErrorMessage))
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+        }
+
+        FString ToInputName;
+        Params->TryGetStringField(TEXT("to_input_name"), ToInputName);
+        bConnected = UMaterialEditingLibrary::ConnectMaterialExpressions(FromExpression, FromOutputName, ToExpression, ToInputName);
+        Result->SetStringField(TEXT("connection_kind"), TEXT("expression"));
+        Result->SetStringField(TEXT("to_input_name"), ToInputName);
+        Result->SetObjectField(TEXT("to_expression"), UnrealMCPAssetCreateMaterialExpressionObject(Material, ToExpression));
+    }
+
+    if (!bConnected)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("材质表达式连接失败，请检查输入输出名称是否正确"));
+    }
+
+    if (!UnrealMCPAssetSaveMaterial(Material, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetNumberField(TEXT("expression_count"), Material->GetExpressions().Num());
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleLayoutMaterialGraph(const TSharedPtr<FJsonObject>& Params)
+{
+    UMaterial* Material = nullptr;
+    FAssetData MaterialAssetData;
+    FString ErrorMessage;
+    if (!ResolveBaseMaterialFromParams(Params, Material, MaterialAssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    Material->Modify();
+    UMaterialEditingLibrary::LayoutMaterialExpressions(Material);
+
+    if (!UnrealMCPAssetSaveMaterial(Material, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(MaterialAssetData);
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetNumberField(TEXT("expression_count"), Material->GetExpressions().Num());
+
+    TArray<TSharedPtr<FJsonValue>> Expressions;
+    Expressions.Reserve(Material->GetExpressions().Num());
+    for (UMaterialExpression* Expression : Material->GetExpressions())
+    {
+        Expressions.Add(MakeShared<FJsonValueObject>(UnrealMCPAssetCreateMaterialExpressionObject(Material, Expression)));
+    }
+    Result->SetArrayField(TEXT("expressions"), Expressions);
+    return Result;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCompileMaterial(const TSharedPtr<FJsonObject>& Params)
+{
+    UMaterial* Material = nullptr;
+    FAssetData MaterialAssetData;
+    FString ErrorMessage;
+    if (!ResolveBaseMaterialFromParams(Params, Material, MaterialAssetData, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    UMaterialEditingLibrary::RecompileMaterial(Material);
+    Material->PostEditChange();
+
+    if (!UnrealMCPAssetSaveMaterial(Material, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(MaterialAssetData);
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetNumberField(TEXT("expression_count"), Material->GetExpressions().Num());
+    Result->SetBoolField(TEXT("compiled"), true);
     return Result;
 }
