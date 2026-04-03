@@ -59,6 +59,13 @@ private:
     TSharedPtr<FJsonObject> HandleGetAssetSummary(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 使用通用工厂创建任意资产。
+     * @param [in] Params 创建参数。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateAsset(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 保存资产。
      * @param [in] Params 查询参数。
      * @return TSharedPtr<FJsonObject> 保存结果。
@@ -115,6 +122,20 @@ private:
     TSharedPtr<FJsonObject> HandleDeleteAsset(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 批量重命名资产。
+     * @param [in] Params 批量改名参数。
+     * @return TSharedPtr<FJsonObject> 批量改名结果。
+     */
+    TSharedPtr<FJsonObject> HandleBatchRenameAssets(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 批量移动资产到同一目录。
+     * @param [in] Params 批量移动参数。
+     * @return TSharedPtr<FJsonObject> 批量移动结果。
+     */
+    TSharedPtr<FJsonObject> HandleBatchMoveAssets(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 设置资产元数据标签。
      * @param [in] Params 写入参数。
      * @return TSharedPtr<FJsonObject> 写入结果。
@@ -169,6 +190,20 @@ private:
      * @return TSharedPtr<FJsonObject> 创建结果。
      */
     TSharedPtr<FJsonObject> HandleCreateMaterial(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 创建材质函数资源。
+     * @param [in] Params 创建参数（包含 name，可选 path、function_class）。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateMaterialFunction(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 创建渲染目标资源。
+     * @param [in] Params 创建参数（包含 name，可选 path、width、height、format、clear_color）。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateRenderTarget(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 创建材质实例资源。

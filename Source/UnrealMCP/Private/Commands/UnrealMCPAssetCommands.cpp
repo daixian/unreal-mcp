@@ -92,17 +92,6 @@ static TSharedPtr<FJsonObject> CreateAssetIdentityObject(const FAssetData& Asset
     return Result;
 }
 
-static TArray<TSharedPtr<FJsonValue>> CreateAssetIdentityArray(const TArray<FAssetData>& AssetDataList)
-{
-    TArray<TSharedPtr<FJsonValue>> Result;
-    Result.Reserve(AssetDataList.Num());
-    for (const FAssetData& AssetData : AssetDataList)
-    {
-        Result.Add(MakeShared<FJsonValueObject>(CreateAssetIdentityObject(AssetData)));
-    }
-    return Result;
-}
-
 static void AddTagsToObject(const FAssetData& AssetData, const TSharedPtr<FJsonObject>& Result, int32 MaxTagCount)
 {
     TSharedPtr<FJsonObject> Tags = MakeShared<FJsonObject>();
@@ -479,38 +468,6 @@ static bool ResolveAssetDataFromParams(const TSharedPtr<FJsonObject>& Params, FA
         OutErrorMessage = TEXT("Missing 'asset_path' parameter");
         return false;
     }
-    return ResolveAssetReference(AssetReference, OutAssetData, OutErrorMessage);
-}
-
-static bool ResolveAssetDataFromPrefixedParams(
-    const TSharedPtr<FJsonObject>& Params,
-    const FString& Prefix,
-    FAssetData& OutAssetData,
-    FString& OutErrorMessage)
-{
-    FString AssetReference;
-    if (!Params->TryGetStringField(Prefix + TEXT("asset_path"), AssetReference))
-    {
-        if (!Params->TryGetStringField(Prefix + TEXT("object_path"), AssetReference))
-        {
-            if (!Params->TryGetStringField(Prefix + TEXT("asset_name"), AssetReference))
-            {
-                Params->TryGetStringField(Prefix + TEXT("name"), AssetReference);
-            }
-        }
-    }
-
-    if (AssetReference.IsEmpty())
-    {
-        OutErrorMessage = FString::Printf(
-            TEXT("Missing one of '%sasset_path', '%sobject_path', '%sasset_name' or '%sname' parameters"),
-            *Prefix,
-            *Prefix,
-            *Prefix,
-            *Prefix);
-        return false;
-    }
-
     return ResolveAssetReference(AssetReference, OutAssetData, OutErrorMessage);
 }
 
@@ -1916,6 +1873,31 @@ static FString ReimportResultToString(bool bCanReimport, bool bStarted, bool bCo
     return bCompleted ? TEXT("completed") : TEXT("pending");
 }
 
+/**
+ * @brief 判断当前重导入请求是否必须继续走旧 C++ 实现。
+ * @param [in] Params MCP 命令参数。
+ * @return bool 只要命中 Python 当前尚未覆盖的参数语义，就返回 true。
+ */
+static bool UnrealMCPAssetShouldUseLegacyReimportParameters(const TSharedPtr<FJsonObject>& Params)
+{
+    if (!Params.IsValid())
+    {
+        return false;
+    }
+
+    const bool bAskForNewFileIfMissing =
+        Params->HasTypedField<EJson::Boolean>(TEXT("ask_for_new_file_if_missing")) &&
+        Params->GetBoolField(TEXT("ask_for_new_file_if_missing"));
+    const bool bShowNotification =
+        !Params->HasTypedField<EJson::Boolean>(TEXT("show_notification")) ||
+        Params->GetBoolField(TEXT("show_notification"));
+    const bool bForceNewFile =
+        Params->HasTypedField<EJson::Boolean>(TEXT("force_new_file")) &&
+        Params->GetBoolField(TEXT("force_new_file"));
+
+    return bAskForNewFileIfMissing || !bShowNotification || bForceNewFile;
+}
+
 static bool TryParseRedirectFixupMode(const FString& FixupModeText, ERedirectFixupMode& OutFixupMode, FString& OutNormalizedMode)
 {
     const FString Normalized = FixupModeText.TrimStartAndEnd().ToLower();
@@ -1942,111 +1924,6 @@ static bool TryParseRedirectFixupMode(const FString& FixupModeText, ERedirectFix
     }
 
     return false;
-}
-
-static TSharedPtr<FJsonObject> ExecuteAssetConsolidationOperation(
-    const TSharedPtr<FJsonObject>& Params,
-    const FString& TargetPrefix,
-    const FString& SourceFieldName,
-    const FString& OperationKind)
-{
-    UEditorAssetSubsystem* AssetSubsystem = GetAssetSubsystem();
-    if (!AssetSubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("EditorAssetSubsystem is unavailable"));
-    }
-
-    FAssetData TargetAssetData;
-    FString ErrorMessage;
-    if (!ResolveAssetDataFromPrefixedParams(Params, TargetPrefix, TargetAssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TArray<FAssetData> SourceAssetDataList;
-    if (!ResolveAssetDataListFromParams(Params, SourceFieldName, SourceAssetDataList, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    if (SourceAssetDataList.Num() == 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Missing '%s' parameter"), *SourceFieldName));
-    }
-
-    UObject* TargetAssetObject = TargetAssetData.GetAsset();
-    if (!TargetAssetObject)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Failed to load target asset: %s"), *TargetAssetData.GetObjectPathString()));
-    }
-
-    TArray<FAssetData> UniqueSourceAssetDataList;
-    UniqueSourceAssetDataList.Reserve(SourceAssetDataList.Num());
-
-    TArray<UObject*> SourceAssetObjects;
-    SourceAssetObjects.Reserve(SourceAssetDataList.Num());
-
-    TSet<FString> SeenSourceObjectPaths;
-    for (const FAssetData& SourceAssetData : SourceAssetDataList)
-    {
-        if (!SourceAssetData.IsValid())
-        {
-            continue;
-        }
-
-        if (SourceAssetData.PackageName == TargetAssetData.PackageName)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Target asset cannot also appear in source assets"));
-        }
-
-        const FString SourceObjectPath = SourceAssetData.GetObjectPathString();
-        if (SeenSourceObjectPaths.Contains(SourceObjectPath))
-        {
-            continue;
-        }
-
-        UObject* SourceAssetObject = SourceAssetData.GetAsset();
-        if (!SourceAssetObject)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(
-                FString::Printf(TEXT("Failed to load source asset: %s"), *SourceObjectPath));
-        }
-
-        if (SourceAssetObject->GetClass() != TargetAssetObject->GetClass())
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(
-                FString::Printf(
-                    TEXT("Asset class mismatch: %s and %s must have the same class"),
-                    *TargetAssetData.GetObjectPathString(),
-                    *SourceObjectPath));
-        }
-
-        SeenSourceObjectPaths.Add(SourceObjectPath);
-        UniqueSourceAssetDataList.Add(SourceAssetData);
-        SourceAssetObjects.Add(SourceAssetObject);
-    }
-
-    if (SourceAssetObjects.Num() == 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No valid source assets were provided"));
-    }
-
-    if (!AssetSubsystem->ConsolidateAssets(TargetAssetObject, SourceAssetObjects))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("%s failed"), *OperationKind));
-    }
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(TargetAssetData);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("operation_kind"), OperationKind);
-    Result->SetBoolField(TEXT("deleted_source_assets"), true);
-    Result->SetNumberField(TEXT("source_asset_count"), UniqueSourceAssetDataList.Num());
-    Result->SetNumberField(TEXT("deleted_asset_count"), UniqueSourceAssetDataList.Num());
-    Result->SetArrayField(TEXT("source_assets"), CreateAssetIdentityArray(UniqueSourceAssetDataList));
-    return Result;
 }
 
 static TSharedPtr<FJsonValue> ExportPropertyValue(const FProperty* Property, const void* ValuePtr, int32 Depth)
@@ -2525,6 +2402,7 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCommand(const FString& Co
     if (CommandType == TEXT("get_asset_dependencies")) return HandleGetAssetDependencies(Params);
     if (CommandType == TEXT("get_asset_referencers")) return HandleGetAssetReferencers(Params);
     if (CommandType == TEXT("get_asset_summary")) return HandleGetAssetSummary(Params);
+    if (CommandType == TEXT("create_asset")) return HandleCreateAsset(Params);
     if (CommandType == TEXT("save_asset")) return HandleSaveAsset(Params);
     if (CommandType == TEXT("import_asset")) return HandleImportAsset(Params);
     if (CommandType == TEXT("export_asset")) return HandleExportAsset(Params);
@@ -2533,6 +2411,8 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCommand(const FString& Co
     if (CommandType == TEXT("rename_asset")) return HandleRenameAsset(Params);
     if (CommandType == TEXT("move_asset")) return HandleMoveAsset(Params);
     if (CommandType == TEXT("delete_asset")) return HandleDeleteAsset(Params);
+    if (CommandType == TEXT("batch_rename_assets")) return HandleBatchRenameAssets(Params);
+    if (CommandType == TEXT("batch_move_assets")) return HandleBatchMoveAssets(Params);
     if (CommandType == TEXT("set_asset_metadata")) return HandleSetAssetMetadata(Params);
     if (CommandType == TEXT("consolidate_assets")) return HandleConsolidateAssets(Params);
     if (CommandType == TEXT("replace_asset_references")) return HandleReplaceAssetReferences(Params);
@@ -2541,6 +2421,8 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCommand(const FString& Co
     if (CommandType == TEXT("save_all_dirty_assets")) return HandleSaveAllDirtyAssets(Params);
     if (CommandType == TEXT("get_blueprint_summary")) return HandleGetBlueprintSummary(Params);
     if (CommandType == TEXT("create_material")) return HandleCreateMaterial(Params);
+    if (CommandType == TEXT("create_material_function")) return HandleCreateMaterialFunction(Params);
+    if (CommandType == TEXT("create_render_target")) return HandleCreateRenderTarget(Params);
     if (CommandType == TEXT("create_material_instance")) return HandleCreateMaterialInstance(Params);
     if (CommandType == TEXT("get_material_parameters")) return HandleGetMaterialParameters(Params);
     if (CommandType == TEXT("set_material_instance_scalar_parameter")) return HandleSetMaterialInstanceScalarParameter(Params);
@@ -2558,87 +2440,20 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCommand(const FString& Co
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSearchAssets(const TSharedPtr<FJsonObject>& Params)
 {
-    FString Path = TEXT("/Game");
-    Params->TryGetStringField(TEXT("path"), Path);
-    FString Query;
-    if (!Params->TryGetStringField(TEXT("query"), Query)) Params->TryGetStringField(TEXT("name_contains"), Query);
-    FString ClassName;
-    Params->TryGetStringField(TEXT("class_name"), ClassName);
-    bool bRecursivePaths = true;
-    Params->TryGetBoolField(TEXT("recursive_paths"), bRecursivePaths);
-    bool bIncludeTags = false;
-    Params->TryGetBoolField(TEXT("include_tags"), bIncludeTags);
-    int32 Limit = Params->HasField(TEXT("limit")) ? FMath::Clamp(static_cast<int32>(Params->GetNumberField(TEXT("limit"))), 1, 200) : 50;
-
-    FARFilter Filter;
-    Filter.bRecursivePaths = bRecursivePaths;
-    if (!Path.IsEmpty()) Filter.PackagePaths.Add(*Path);
-    if (!ClassName.IsEmpty())
-    {
-        const FTopLevelAssetPath ClassPath = ResolveClassPath(ClassName);
-        if (!ClassPath.IsValid())
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown class_name: %s"), *ClassName));
-        }
-        Filter.ClassPaths.Add(ClassPath);
-    }
-
-    TArray<FAssetData> Assets;
-    GetAssetRegistryRef().GetAssets(Filter, Assets);
-
-    TArray<FAssetData> FilteredAssets;
-    for (const FAssetData& AssetData : Assets)
-    {
-        if (!Query.IsEmpty() &&
-            !AssetData.AssetName.ToString().Contains(Query, ESearchCase::IgnoreCase) &&
-            !AssetData.GetObjectPathString().Contains(Query, ESearchCase::IgnoreCase))
-        {
-            continue;
-        }
-        FilteredAssets.Add(AssetData);
-    }
-
-    FilteredAssets.Sort([](const FAssetData& A, const FAssetData& B) { return A.GetObjectPathString() < B.GetObjectPathString(); });
-
-    TArray<TSharedPtr<FJsonValue>> AssetArray;
-    const int32 ReturnCount = FMath::Min(Limit, FilteredAssets.Num());
-    for (int32 Index = 0; Index < ReturnCount; ++Index)
-    {
-        TSharedPtr<FJsonObject> Item = CreateAssetIdentityObject(FilteredAssets[Index]);
-        if (bIncludeTags) AddTagsToObject(FilteredAssets[Index], Item, 32);
-        AssetArray.Add(MakeShared<FJsonValueObject>(Item));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetStringField(TEXT("path"), Path);
-    Result->SetStringField(TEXT("query"), Query);
-    Result->SetStringField(TEXT("class_name"), ClassName);
-    Result->SetNumberField(TEXT("total_matches"), FilteredAssets.Num());
-    Result->SetNumberField(TEXT("returned_count"), ReturnCount);
-    Result->SetArrayField(TEXT("assets"), AssetArray);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("search_assets"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetAssetMetadata(const TSharedPtr<FJsonObject>& Params)
 {
-    FAssetData AssetData;
-    FString ErrorMessage;
-    if (!ResolveAssetDataFromParams(Params, AssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
-    AddTagsToObject(AssetData, Result, 128);
-
-    TArray<FString> Dependencies;
-    CollectSimpleDependencyPaths(AssetData, false, Dependencies);
-    Result->SetArrayField(TEXT("dependencies"), ToJsonStringArray(Dependencies));
-
-    TArray<FString> Referencers;
-    CollectSimpleDependencyPaths(AssetData, true, Referencers);
-    Result->SetArrayField(TEXT("referencers"), ToJsonStringArray(Referencers));
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("get_asset_metadata"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetAssetDependencies(const TSharedPtr<FJsonObject>& Params)
@@ -2692,301 +2507,61 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetAssetSummary(const TSh
     return CreateAssetSummary(AssetObject, AssetData);
 }
 
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateAsset(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("create_asset"),
+        Params);
+}
+
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSaveAsset(const TSharedPtr<FJsonObject>& Params)
 {
-    FAssetData AssetData;
-    FString ErrorMessage;
-    if (!ResolveAssetDataFromParams(Params, AssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UObject* AssetObject = AssetData.GetAsset();
-    if (!AssetObject)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load asset: %s"), *AssetData.GetObjectPathString()));
-    }
-
-    const bool bOnlyIfDirty = Params->HasTypedField<EJson::Boolean>(TEXT("only_if_dirty"))
-        ? Params->GetBoolField(TEXT("only_if_dirty"))
-        : false;
-
-    const bool bIsDirty = AssetObject->GetOutermost() && AssetObject->GetOutermost()->IsDirty();
-    const bool bShouldSave = !bOnlyIfDirty || bIsDirty;
-    const bool bSaved = bShouldSave ? UEditorAssetLibrary::SaveLoadedAsset(AssetObject, false) : true;
-
-    if (!bSaved)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to save asset: %s"), *AssetData.GetObjectPathString()));
-    }
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
-    Result->SetBoolField(TEXT("saved"), true);
-    Result->SetBoolField(TEXT("was_dirty"), bIsDirty);
-    Result->SetBoolField(TEXT("only_if_dirty"), bOnlyIfDirty);
-    Result->SetBoolField(TEXT("save_attempted"), bShouldSave);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("save_asset"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleImportAsset(const TSharedPtr<FJsonObject>& Params)
 {
-    FString Filename;
-    Params->TryGetStringField(TEXT("filename"), Filename);
-
-    TArray<FString> SourceFiles;
-    if (!Filename.TrimStartAndEnd().IsEmpty())
-    {
-        SourceFiles.Add(Filename.TrimStartAndEnd());
-    }
-
-    TArray<FString> AdditionalFiles;
-    if (TryGetStringArrayField(Params, TEXT("source_files"), AdditionalFiles))
-    {
-        SourceFiles.Append(AdditionalFiles);
-    }
-
-    if (SourceFiles.Num() == 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'filename' or 'source_files' parameter"));
-    }
-
-    FString DestinationPath;
-    if (!Params->TryGetStringField(TEXT("destination_path"), DestinationPath) || DestinationPath.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'destination_path' parameter"));
-    }
-    DestinationPath = DestinationPath.TrimStartAndEnd();
-
-    FString DestinationName;
-    Params->TryGetStringField(TEXT("destination_name"), DestinationName);
-    DestinationName = DestinationName.TrimStartAndEnd();
-    if (!DestinationName.IsEmpty() && SourceFiles.Num() > 1)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("'destination_name' 只能在导入单个文件时使用"));
-    }
-
-    const bool bReplaceExisting = Params->HasTypedField<EJson::Boolean>(TEXT("replace_existing"))
-        ? Params->GetBoolField(TEXT("replace_existing"))
-        : true;
-    const bool bReplaceExistingSettings = Params->HasTypedField<EJson::Boolean>(TEXT("replace_existing_settings"))
-        ? Params->GetBoolField(TEXT("replace_existing_settings"))
-        : false;
-    const bool bAutomated = Params->HasTypedField<EJson::Boolean>(TEXT("automated"))
-        ? Params->GetBoolField(TEXT("automated"))
-        : true;
-    const bool bSave = Params->HasTypedField<EJson::Boolean>(TEXT("save"))
-        ? Params->GetBoolField(TEXT("save"))
-        : true;
-    const bool bRequestedAsyncImport = Params->HasTypedField<EJson::Boolean>(TEXT("async_import"))
-        ? Params->GetBoolField(TEXT("async_import"))
-        : true;
-    const bool bAsyncImport = true;
-
-    TArray<UAssetImportTask*> Tasks;
-    TArray<FString> ResolvedSourceFiles;
-    Tasks.Reserve(SourceFiles.Num());
-
-    for (const FString& SourceFile : SourceFiles)
-    {
-        const FString AbsoluteSourceFile = FPaths::ConvertRelativePathToFull(SourceFile);
-        if (!FPaths::FileExists(AbsoluteSourceFile))
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(
-                FString::Printf(TEXT("导入源文件不存在: %s"), *AbsoluteSourceFile));
-        }
-
-        UAssetImportTask* Task = NewObject<UAssetImportTask>();
-        Task->Filename = AbsoluteSourceFile;
-        Task->DestinationPath = DestinationPath;
-        Task->DestinationName = DestinationName;
-        Task->bReplaceExisting = bReplaceExisting;
-        Task->bReplaceExistingSettings = bReplaceExistingSettings;
-        Task->bAutomated = bAutomated;
-        Task->bSave = bSave;
-        Task->bAsync = bAsyncImport;
-        Tasks.Add(Task);
-        ResolvedSourceFiles.Add(AbsoluteSourceFile);
-    }
-
-    FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
-    AssetToolsModule.Get().ImportAssetTasks(Tasks);
-
-    TArray<TSharedPtr<FJsonValue>> ImportedObjectPathValues;
-    TArray<TSharedPtr<FJsonValue>> ImportedAssetValues;
-    TArray<TSharedPtr<FJsonValue>> ExpectedObjectPathValues;
-    bool bImportCompleted = true;
-    for (UAssetImportTask* Task : Tasks)
-    {
-        if (!Task)
-        {
-            continue;
-        }
-
-        if (Task->AsyncResults.IsValid() && !Task->IsAsyncImportComplete())
-        {
-            bImportCompleted = false;
-        }
-
-        for (const FString& ImportedObjectPath : Task->ImportedObjectPaths)
-        {
-            ImportedObjectPathValues.Add(MakeShared<FJsonValueString>(ImportedObjectPath));
-
-            FAssetData ImportedAssetData;
-            FString ResolveErrorMessage;
-            if (ResolveAssetReference(ImportedObjectPath, ImportedAssetData, ResolveErrorMessage))
-            {
-                ImportedAssetValues.Add(MakeShared<FJsonValueObject>(CreateAssetIdentityObject(ImportedAssetData)));
-            }
-        }
-
-        if (!DestinationName.IsEmpty())
-        {
-            const FString ExpectedObjectPath = FString::Printf(
-                TEXT("%s.%s"),
-                *FString::Printf(TEXT("%s/%s"), *DestinationPath, *DestinationName),
-                *DestinationName);
-            ExpectedObjectPathValues.Add(MakeShared<FJsonValueString>(ExpectedObjectPath));
-        }
-    }
-
-    const bool bHasAsyncResults = Algo::AnyOf(Tasks, [](const UAssetImportTask* Task)
-    {
-        return Task && Task->AsyncResults.IsValid();
-    });
-
-    if (ImportedObjectPathValues.Num() == 0 && !bHasAsyncResults)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("导入失败，未返回任何 ImportedObjectPaths"));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("destination_path"), DestinationPath);
-    Result->SetStringField(TEXT("destination_name"), DestinationName);
-    Result->SetBoolField(TEXT("requested_async_import"), bRequestedAsyncImport);
-    Result->SetBoolField(TEXT("replace_existing"), bReplaceExisting);
-    Result->SetBoolField(TEXT("replace_existing_settings"), bReplaceExistingSettings);
-    Result->SetBoolField(TEXT("automated"), bAutomated);
-    Result->SetBoolField(TEXT("save"), bSave);
-    Result->SetBoolField(TEXT("async_import"), bAsyncImport);
-    Result->SetBoolField(TEXT("import_completed"), bImportCompleted);
-    Result->SetBoolField(TEXT("has_async_results"), bHasAsyncResults);
-    Result->SetArrayField(TEXT("source_files"), ToJsonStringArray(ResolvedSourceFiles));
-    Result->SetArrayField(TEXT("imported_object_paths"), ImportedObjectPathValues);
-    Result->SetArrayField(TEXT("imported_assets"), ImportedAssetValues);
-    Result->SetArrayField(TEXT("expected_object_paths"), ExpectedObjectPathValues);
-    Result->SetNumberField(TEXT("imported_count"), ImportedObjectPathValues.Num());
-    Result->SetNumberField(TEXT("task_count"), Tasks.Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("import_asset"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleExportAsset(const TSharedPtr<FJsonObject>& Params)
 {
-    FString ExportPath;
-    if (!Params->TryGetStringField(TEXT("export_path"), ExportPath) || ExportPath.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'export_path' parameter"));
-    }
-    ExportPath = FPaths::ConvertRelativePathToFull(ExportPath.TrimStartAndEnd());
-
-    TArray<FAssetData> AssetDataList;
-    FString ErrorMessage;
-
-    FString SingleAssetPath;
-    Params->TryGetStringField(TEXT("asset_path"), SingleAssetPath);
-    if (!SingleAssetPath.TrimStartAndEnd().IsEmpty())
-    {
-        FAssetData AssetData;
-        if (!ResolveAssetReference(SingleAssetPath.TrimStartAndEnd(), AssetData, ErrorMessage))
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-        }
-        AssetDataList.Add(AssetData);
-    }
-
-    TArray<FAssetData> MultipleAssetDataList;
-    if (!ResolveAssetDataListFromParams(Params, TEXT("asset_paths"), MultipleAssetDataList, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-    AssetDataList.Append(MultipleAssetDataList);
-
-    if (AssetDataList.Num() == 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'asset_path' or 'asset_paths' parameter"));
-    }
-
-    if (!IFileManager::Get().MakeDirectory(*ExportPath, true))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("无法创建导出目录: %s"), *ExportPath));
-    }
-
-    TArray<UObject*> AssetsToExport;
-    TArray<TSharedPtr<FJsonValue>> AssetValues;
-    AssetsToExport.Reserve(AssetDataList.Num());
-    AssetValues.Reserve(AssetDataList.Num());
-
-    for (const FAssetData& AssetData : AssetDataList)
-    {
-        UObject* AssetObject = AssetData.GetAsset();
-        if (!AssetObject)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(
-                FString::Printf(TEXT("Failed to load asset for export: %s"), *AssetData.GetObjectPathString()));
-        }
-        AssetsToExport.Add(AssetObject);
-        AssetValues.Add(MakeShared<FJsonValueObject>(CreateAssetIdentityObject(AssetData)));
-    }
-
-    const bool bCleanFilename = Params->HasTypedField<EJson::Boolean>(TEXT("clean_filenames"))
-        ? Params->GetBoolField(TEXT("clean_filenames"))
-        : true;
-
-    FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
-    if (!AssetToolsModule.Get().CanExportAssets(AssetDataList))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("存在不支持导出的资产"));
-    }
-
-    TSet<FString> BeforeFiles;
-    CollectDirectoryFilesRecursively(ExportPath, BeforeFiles);
-
-    if (bCleanFilename)
-    {
-        AssetToolsModule.Get().ExportAssetsWithCleanFilename(AssetsToExport, ExportPath);
-    }
-    else
-    {
-        AssetToolsModule.Get().ExportAssets(AssetsToExport, ExportPath);
-    }
-
-    TSet<FString> AfterFiles;
-    CollectDirectoryFilesRecursively(ExportPath, AfterFiles);
-
-    TArray<FString> NewFiles;
-    for (const FString& FilePath : AfterFiles)
-    {
-        if (!BeforeFiles.Contains(FilePath))
-        {
-            NewFiles.Add(FilePath);
-        }
-    }
-    NewFiles.Sort();
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("export_path"), ExportPath);
-    Result->SetBoolField(TEXT("clean_filenames"), bCleanFilename);
-    Result->SetArrayField(TEXT("assets"), AssetValues);
-    Result->SetNumberField(TEXT("asset_count"), AssetValues.Num());
-    Result->SetArrayField(TEXT("new_files"), ToJsonStringArray(NewFiles));
-    Result->SetNumberField(TEXT("new_file_count"), NewFiles.Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("export_asset"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleReimportAsset(const TSharedPtr<FJsonObject>& Params)
 {
+    if (!UnrealMCPAssetShouldUseLegacyReimportParameters(Params))
+    {
+        const TSharedPtr<FJsonObject> LocalPythonResult = FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+            TEXT("commands.assets.asset_commands"),
+            TEXT("handle_asset_command"),
+            TEXT("reimport_asset"),
+            Params);
+        const bool bFallbackToCpp =
+            LocalPythonResult.IsValid() &&
+            LocalPythonResult->HasTypedField<EJson::Boolean>(TEXT("fallback_to_cpp")) &&
+            LocalPythonResult->GetBoolField(TEXT("fallback_to_cpp"));
+        if (!bFallbackToCpp)
+        {
+            return LocalPythonResult;
+        }
+    }
+
     TArray<FAssetData> AssetDataList;
     FString ErrorMessage;
 
@@ -3260,314 +2835,101 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleFixupRedirectors(const TS
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleRenameAsset(const TSharedPtr<FJsonObject>& Params)
 {
-    UEditorAssetSubsystem* AssetSubsystem = GetAssetSubsystem();
-    if (!AssetSubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("EditorAssetSubsystem is unavailable"));
-    }
-
-    FString SourceAssetPath;
-    FString DestinationAssetPath;
-    if (!Params->TryGetStringField(TEXT("source_asset_path"), SourceAssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'source_asset_path' parameter"));
-    }
-    if (!Params->TryGetStringField(TEXT("destination_asset_path"), DestinationAssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'destination_asset_path' parameter"));
-    }
-
-    if (!UEditorAssetLibrary::DoesAssetExist(SourceAssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Source asset does not exist: %s"), *SourceAssetPath));
-    }
-    if (UEditorAssetLibrary::DoesAssetExist(DestinationAssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Destination asset already exists: %s"), *DestinationAssetPath));
-    }
-    if (!AssetSubsystem->RenameAsset(SourceAssetPath, DestinationAssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to rename asset from %s to %s"), *SourceAssetPath, *DestinationAssetPath));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("source_asset_path"), SourceAssetPath);
-    Result->SetStringField(TEXT("destination_asset_path"), DestinationAssetPath);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("rename_asset"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleMoveAsset(const TSharedPtr<FJsonObject>& Params)
 {
-    return HandleRenameAsset(Params);
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("move_asset"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleDeleteAsset(const TSharedPtr<FJsonObject>& Params)
 {
-    UEditorAssetSubsystem* AssetSubsystem = GetAssetSubsystem();
-    if (!AssetSubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("EditorAssetSubsystem is unavailable"));
-    }
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("delete_asset"),
+        Params);
+}
 
-    FAssetData AssetData;
-    FString ErrorMessage;
-    if (!ResolveAssetDataFromParams(Params, AssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleBatchRenameAssets(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("batch_rename_assets"),
+        Params);
+}
 
-    const FString AssetPath = AssetData.PackageName.ToString();
-    if (!AssetSubsystem->DeleteAsset(AssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to delete asset: %s"), *AssetPath));
-    }
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
-    Result->SetBoolField(TEXT("deleted"), true);
-    return Result;
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleBatchMoveAssets(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("batch_move_assets"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSetAssetMetadata(const TSharedPtr<FJsonObject>& Params)
 {
-    UEditorAssetSubsystem* AssetSubsystem = GetAssetSubsystem();
-    if (!AssetSubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("EditorAssetSubsystem is unavailable"));
-    }
-
-    FAssetData AssetData;
-    FString ErrorMessage;
-    if (!ResolveAssetDataFromParams(Params, AssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UObject* AssetObject = AssetData.GetAsset();
-    if (!AssetObject)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Failed to load asset: %s"), *AssetData.GetObjectPathString()));
-    }
-
-    const TSharedPtr<FJsonObject>* MetadataObjectPtr = nullptr;
-    const bool bHasMetadata = Params->TryGetObjectField(TEXT("metadata"), MetadataObjectPtr)
-        && MetadataObjectPtr
-        && MetadataObjectPtr->IsValid();
-
-    TArray<FString> RemoveMetadataKeys;
-    if (!TryGetStringArrayField(Params, TEXT("remove_metadata_keys"), RemoveMetadataKeys))
-    {
-        TryGetStringArrayField(Params, TEXT("remove_keys"), RemoveMetadataKeys);
-    }
-
-    const bool bClearExisting = Params->HasTypedField<EJson::Boolean>(TEXT("clear_existing"))
-        ? Params->GetBoolField(TEXT("clear_existing"))
-        : false;
-    const bool bSaveAsset = Params->HasTypedField<EJson::Boolean>(TEXT("save_asset"))
-        ? Params->GetBoolField(TEXT("save_asset"))
-        : true;
-
-    if (!bHasMetadata && RemoveMetadataKeys.Num() == 0 && !bClearExisting)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            TEXT("At least one of 'metadata', 'remove_metadata_keys' or 'clear_existing' is required"));
-    }
-
-    TMap<FName, FString> ExistingMetadata = AssetSubsystem->GetMetadataTagValues(AssetObject);
-    TSet<FString> RemovedKeySet;
-
-    AssetObject->Modify();
-
-    if (bClearExisting)
-    {
-        for (const TPair<FName, FString>& MetadataPair : ExistingMetadata)
-        {
-            AssetSubsystem->RemoveMetadataTag(AssetObject, MetadataPair.Key);
-            RemovedKeySet.Add(MetadataPair.Key.ToString());
-        }
-    }
-
-    for (const FString& RemoveMetadataKey : RemoveMetadataKeys)
-    {
-        const FString NormalizedKey = RemoveMetadataKey.TrimStartAndEnd();
-        if (NormalizedKey.IsEmpty())
-        {
-            continue;
-        }
-
-        AssetSubsystem->RemoveMetadataTag(AssetObject, FName(*NormalizedKey));
-        RemovedKeySet.Add(NormalizedKey);
-    }
-
-    TArray<FString> UpdatedKeys;
-    if (bHasMetadata)
-    {
-        TArray<FString> MetadataFieldNames;
-        MetadataObjectPtr->Get()->Values.GetKeys(MetadataFieldNames);
-        MetadataFieldNames.Sort();
-
-        for (const FString& MetadataFieldName : MetadataFieldNames)
-        {
-            const TSharedPtr<FJsonValue>* MetadataValuePtr = MetadataObjectPtr->Get()->Values.Find(MetadataFieldName);
-            if (!MetadataValuePtr)
-            {
-                continue;
-            }
-
-            AssetSubsystem->SetMetadataTag(
-                AssetObject,
-                FName(*MetadataFieldName),
-                ConvertJsonValueToMetadataString(*MetadataValuePtr));
-            UpdatedKeys.Add(MetadataFieldName);
-        }
-    }
-
-    if (UPackage* AssetPackage = AssetObject->GetOutermost())
-    {
-        AssetPackage->MarkPackageDirty();
-    }
-
-    const bool bSaved = !bSaveAsset || UEditorAssetLibrary::SaveLoadedAsset(AssetObject, false);
-    if (!bSaved)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Failed to save asset after metadata update: %s"), *AssetData.GetObjectPathString()));
-    }
-
-    TArray<FString> RemovedKeys = RemovedKeySet.Array();
-    RemovedKeys.Sort();
-
-    const TMap<FName, FString> FinalMetadata = AssetSubsystem->GetMetadataTagValues(AssetObject);
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetBoolField(TEXT("clear_existing"), bClearExisting);
-    Result->SetBoolField(TEXT("save_asset"), bSaveAsset);
-    Result->SetBoolField(TEXT("saved"), bSaved);
-    Result->SetNumberField(TEXT("updated_count"), UpdatedKeys.Num());
-    Result->SetNumberField(TEXT("removed_count"), RemovedKeys.Num());
-    Result->SetNumberField(TEXT("metadata_count"), FinalMetadata.Num());
-    Result->SetArrayField(TEXT("updated_keys"), ToJsonStringArray(UpdatedKeys));
-    Result->SetArrayField(TEXT("removed_keys"), ToJsonStringArray(RemovedKeys));
-    Result->SetObjectField(TEXT("metadata"), CreateMetadataJsonObject(FinalMetadata));
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("set_asset_metadata"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleConsolidateAssets(const TSharedPtr<FJsonObject>& Params)
 {
-    return ExecuteAssetConsolidationOperation(
-        Params,
-        TEXT("target_"),
-        TEXT("source_assets"),
-        TEXT("consolidate_assets"));
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("consolidate_assets"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleReplaceAssetReferences(const TSharedPtr<FJsonObject>& Params)
 {
-    return ExecuteAssetConsolidationOperation(
-        Params,
-        TEXT("replacement_"),
-        TEXT("assets_to_replace"),
-        TEXT("replace_asset_references"));
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("replace_asset_references"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetSelectedAssets(const TSharedPtr<FJsonObject>& Params)
 {
-    const bool bIncludeTags = Params.IsValid() && Params->HasTypedField<EJson::Boolean>(TEXT("include_tags"))
-        ? Params->GetBoolField(TEXT("include_tags"))
-        : false;
-
-    TArray<FAssetData> SelectedAssets = UEditorUtilityLibrary::GetSelectedAssetData();
-    TArray<TSharedPtr<FJsonValue>> AssetValues;
-    AssetValues.Reserve(SelectedAssets.Num());
-
-    for (const FAssetData& AssetData : SelectedAssets)
-    {
-        TSharedPtr<FJsonObject> AssetObject = CreateAssetIdentityObject(AssetData);
-        if (bIncludeTags)
-        {
-            AddTagsToObject(AssetData, AssetObject, 128);
-        }
-        AssetValues.Add(MakeShared<FJsonValueObject>(AssetObject));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetArrayField(TEXT("assets"), AssetValues);
-    Result->SetNumberField(TEXT("asset_count"), AssetValues.Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("get_selected_assets"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSyncContentBrowserToAssets(const TSharedPtr<FJsonObject>& Params)
 {
-    if (!GEditor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Editor instance is not available"));
-    }
-
-    const TArray<TSharedPtr<FJsonValue>>* AssetPaths = nullptr;
-    if (!Params->TryGetArrayField(TEXT("asset_paths"), AssetPaths) || !AssetPaths)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'asset_paths' parameter"));
-    }
-
-    TArray<UObject*> ObjectsToSync;
-    TArray<TSharedPtr<FJsonValue>> SyncedAssetPaths;
-
-    for (const TSharedPtr<FJsonValue>& AssetPathValue : *AssetPaths)
-    {
-        const FString AssetPath = AssetPathValue.IsValid() ? AssetPathValue->AsString() : TEXT("");
-        if (AssetPath.IsEmpty())
-        {
-            continue;
-        }
-
-        UObject* AssetObject = UEditorAssetLibrary::LoadAsset(AssetPath);
-        if (!AssetObject)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load asset for sync: %s"), *AssetPath));
-        }
-
-        ObjectsToSync.Add(AssetObject);
-        SyncedAssetPaths.Add(MakeShared<FJsonValueString>(AssetPath));
-    }
-
-    if (ObjectsToSync.Num() == 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No valid assets were provided for sync"));
-    }
-
-    GEditor->SyncBrowserToObjects(ObjectsToSync);
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetArrayField(TEXT("asset_paths"), SyncedAssetPaths);
-    Result->SetNumberField(TEXT("asset_count"), SyncedAssetPaths.Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("sync_content_browser_to_assets"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSaveAllDirtyAssets(const TSharedPtr<FJsonObject>& Params)
 {
-    bool bPackagesNeededSaving = false;
-    const bool bSaved = FEditorFileUtils::SaveDirtyPackages(
-        false,
-        true,
-        true,
-        true,
-        false,
-        false,
-        &bPackagesNeededSaving);
-
-    if (!bSaved)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to save dirty packages"));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetBoolField(TEXT("packages_needed_saving"), bPackagesNeededSaving);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("save_all_dirty_assets"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetBlueprintSummary(const TSharedPtr<FJsonObject>& Params)
@@ -3589,428 +2951,74 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetBlueprintSummary(const
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateMaterial(const TSharedPtr<FJsonObject>& Params)
 {
-    FString MaterialNameText;
-    if (!Params->TryGetStringField(TEXT("name"), MaterialNameText))
-    {
-        Params->TryGetStringField(TEXT("material_name"), MaterialNameText);
-    }
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("create_material"),
+        Params);
+}
 
-    if (MaterialNameText.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'name' 参数"));
-    }
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateMaterialFunction(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("create_material_function"),
+        Params);
+}
 
-    FString PackagePath;
-    FString ErrorMessage;
-    if (!UnrealMCPAssetNormalizePackagePath(
-        Params->HasField(TEXT("path")) ? Params->GetStringField(TEXT("path")) : TEXT(""),
-        TEXT("/Game/Materials"),
-        PackagePath,
-        ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString AssetName;
-    FString AssetPath;
-    if (!UnrealMCPAssetBuildAssetPath(MaterialNameText, PackagePath, AssetName, AssetPath, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    if (!UEditorAssetLibrary::DoesDirectoryExist(PackagePath) && !UEditorAssetLibrary::MakeDirectory(PackagePath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("创建目录失败: %s"), *PackagePath));
-    }
-
-    if (UEditorAssetLibrary::DoesAssetExist(AssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("材质已存在: %s"), *AssetPath));
-    }
-
-    UPackage* Package = CreatePackage(*AssetPath);
-    if (!Package)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("创建资源包失败: %s"), *AssetPath));
-    }
-
-    UMaterialFactoryNew* Factory = NewObject<UMaterialFactoryNew>();
-    UMaterial* Material = Factory
-        ? Cast<UMaterial>(Factory->FactoryCreateNew(UMaterial::StaticClass(), Package, *AssetName, RF_Public | RF_Standalone, nullptr, GWarn))
-        : nullptr;
-    if (!Material)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("创建材质失败"));
-    }
-
-    Material->PostEditChange();
-    Package->MarkPackageDirty();
-    FAssetRegistryModule::AssetCreated(Material);
-    if (!UEditorAssetLibrary::SaveAsset(AssetPath, false))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("保存材质失败: %s"), *AssetPath));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("asset_name"), AssetName);
-    Result->SetStringField(TEXT("asset_path"), AssetPath);
-    Result->SetStringField(TEXT("package_path"), PackagePath);
-    Result->SetStringField(TEXT("asset_class"), TEXT("Material"));
-    return Result;
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateRenderTarget(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("create_render_target"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateMaterialInstance(const TSharedPtr<FJsonObject>& Params)
 {
-    FString MaterialInstanceNameText;
-    if (!Params->TryGetStringField(TEXT("name"), MaterialInstanceNameText))
-    {
-        Params->TryGetStringField(TEXT("material_instance_name"), MaterialInstanceNameText);
-    }
-
-    if (MaterialInstanceNameText.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'name' 参数"));
-    }
-
-    FString ParentMaterialReference;
-    if (!Params->TryGetStringField(TEXT("parent_material"), ParentMaterialReference))
-    {
-        Params->TryGetStringField(TEXT("parent"), ParentMaterialReference);
-    }
-    if (ParentMaterialReference.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'parent_material' 参数"));
-    }
-
-    UMaterialInterface* ParentMaterial = nullptr;
-    FString ErrorMessage;
-    if (!ResolveMaterialInterfaceByReference(ParentMaterialReference, ParentMaterial, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString PackagePath;
-    if (!UnrealMCPAssetNormalizePackagePath(
-        Params->HasField(TEXT("path")) ? Params->GetStringField(TEXT("path")) : TEXT(""),
-        TEXT("/Game/Materials"),
-        PackagePath,
-        ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString AssetName;
-    FString AssetPath;
-    if (!UnrealMCPAssetBuildAssetPath(MaterialInstanceNameText, PackagePath, AssetName, AssetPath, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    if (!UEditorAssetLibrary::DoesDirectoryExist(PackagePath) && !UEditorAssetLibrary::MakeDirectory(PackagePath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("创建目录失败: %s"), *PackagePath));
-    }
-
-    if (UEditorAssetLibrary::DoesAssetExist(AssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("材质实例已存在: %s"), *AssetPath));
-    }
-
-    UPackage* Package = CreatePackage(*AssetPath);
-    if (!Package)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("创建资源包失败: %s"), *AssetPath));
-    }
-
-    UMaterialInstanceConstantFactoryNew* Factory = NewObject<UMaterialInstanceConstantFactoryNew>();
-    if (!Factory)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("创建材质实例工厂失败"));
-    }
-
-    Factory->InitialParent = ParentMaterial;
-    UMaterialInstanceConstant* MaterialInstance = Cast<UMaterialInstanceConstant>(
-        Factory->FactoryCreateNew(UMaterialInstanceConstant::StaticClass(), Package, *AssetName, RF_Public | RF_Standalone, nullptr, GWarn));
-    if (!MaterialInstance)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("创建材质实例失败"));
-    }
-
-    UMaterialEditingLibrary::UpdateMaterialInstance(MaterialInstance);
-    MaterialInstance->PostEditChange();
-    Package->MarkPackageDirty();
-    FAssetRegistryModule::AssetCreated(MaterialInstance);
-    if (!UEditorAssetLibrary::SaveAsset(AssetPath, false))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("保存材质实例失败: %s"), *AssetPath));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("asset_name"), AssetName);
-    Result->SetStringField(TEXT("asset_path"), AssetPath);
-    Result->SetStringField(TEXT("package_path"), PackagePath);
-    Result->SetStringField(TEXT("asset_class"), TEXT("MaterialInstanceConstant"));
-    Result->SetStringField(TEXT("parent_material"), ParentMaterial->GetPathName());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("create_material_instance"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetMaterialParameters(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterialInterface* Material = nullptr;
-    FAssetData AssetData;
-    FString ErrorMessage;
-    if (!ResolveMaterialInterfaceFromParams(Params, Material, AssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
-    const bool bIsMaterialInstance = Material->IsA<UMaterialInstance>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("summary_kind"), bIsMaterialInstance ? TEXT("MaterialInstance") : TEXT("Material"));
-    Result->SetBoolField(TEXT("is_material_instance"), bIsMaterialInstance);
-
-    if (const UMaterialInstance* MaterialInstance = Cast<UMaterialInstance>(Material))
-    {
-        Result->SetStringField(TEXT("parent_material"), MaterialInstance->Parent ? MaterialInstance->Parent->GetPathName() : FString());
-    }
-
-    TArray<FAssetData> ChildInstances;
-    UMaterialEditingLibrary::GetChildInstances(Material, ChildInstances);
-    ChildInstances.Sort([](const FAssetData& A, const FAssetData& B)
-    {
-        return A.GetObjectPathString() < B.GetObjectPathString();
-    });
-
-    TArray<TSharedPtr<FJsonValue>> ChildInstanceValues;
-    ChildInstanceValues.Reserve(ChildInstances.Num());
-    for (const FAssetData& ChildInstance : ChildInstances)
-    {
-        ChildInstanceValues.Add(MakeShared<FJsonValueObject>(CreateAssetIdentityObject(ChildInstance)));
-    }
-    Result->SetArrayField(TEXT("child_instances"), ChildInstanceValues);
-    Result->SetNumberField(TEXT("child_instance_count"), ChildInstanceValues.Num());
-
-    auto CollectParameters = [&Material](
-        EMaterialParameterType ParameterType,
-        TFunctionRef<void(const FMaterialParameterInfo&, const FMaterialParameterMetadata&, const TSharedPtr<FJsonObject>&)> FillValue)
-    {
-        TMap<FMaterialParameterInfo, FMaterialParameterMetadata> Parameters;
-        Material->GetAllParametersOfType(ParameterType, Parameters);
-
-        TArray<FMaterialParameterInfo> ParameterInfos;
-        Parameters.GetKeys(ParameterInfos);
-        ParameterInfos.Sort([](const FMaterialParameterInfo& A, const FMaterialParameterInfo& B)
-        {
-            const FString AName = A.Name.ToString();
-            const FString BName = B.Name.ToString();
-            if (AName != BName)
-            {
-                return AName < BName;
-            }
-            if (A.Association != B.Association)
-            {
-                return static_cast<uint8>(A.Association) < static_cast<uint8>(B.Association);
-            }
-            return A.Index < B.Index;
-        });
-
-        TArray<TSharedPtr<FJsonValue>> Values;
-        Values.Reserve(ParameterInfos.Num());
-        for (const FMaterialParameterInfo& ParameterInfo : ParameterInfos)
-        {
-            const FMaterialParameterMetadata* Metadata = Parameters.Find(ParameterInfo);
-            if (!Metadata)
-            {
-                continue;
-            }
-
-            TSharedPtr<FJsonObject> ParameterObject = CreateMaterialParameterObject(ParameterInfo, *Metadata);
-            FillValue(ParameterInfo, *Metadata, ParameterObject);
-            Values.Add(MakeShared<FJsonValueObject>(ParameterObject));
-        }
-        return Values;
-    };
-
-    const TArray<TSharedPtr<FJsonValue>> ScalarParameters = CollectParameters(
-        EMaterialParameterType::Scalar,
-        [](const FMaterialParameterInfo&, const FMaterialParameterMetadata& Metadata, const TSharedPtr<FJsonObject>& ParameterObject)
-        {
-            ParameterObject->SetNumberField(TEXT("value"), Metadata.Value.AsScalar());
-        });
-
-    const TArray<TSharedPtr<FJsonValue>> VectorParameters = CollectParameters(
-        EMaterialParameterType::Vector,
-        [](const FMaterialParameterInfo&, const FMaterialParameterMetadata& Metadata, const TSharedPtr<FJsonObject>& ParameterObject)
-        {
-            ParameterObject->SetArrayField(TEXT("value"), MakeLinearColorArray(Metadata.Value.AsLinearColor()));
-        });
-
-    const TArray<TSharedPtr<FJsonValue>> TextureParameters = CollectParameters(
-        EMaterialParameterType::Texture,
-        [](const FMaterialParameterInfo&, const FMaterialParameterMetadata& Metadata, const TSharedPtr<FJsonObject>& ParameterObject)
-        {
-            UTexture* Texture = Metadata.Value.Texture;
-            ParameterObject->SetStringField(TEXT("texture_name"), Texture ? Texture->GetName() : FString());
-            ParameterObject->SetStringField(TEXT("texture_path"), Texture ? Texture->GetPathName() : FString());
-        });
-
-    const TArray<TSharedPtr<FJsonValue>> StaticSwitchParameters = CollectParameters(
-        EMaterialParameterType::StaticSwitch,
-        [](const FMaterialParameterInfo&, const FMaterialParameterMetadata& Metadata, const TSharedPtr<FJsonObject>& ParameterObject)
-        {
-            ParameterObject->SetBoolField(TEXT("value"), Metadata.Value.AsStaticSwitch());
-            ParameterObject->SetBoolField(TEXT("dynamic"), Metadata.bDynamicSwitchParameter);
-        });
-
-    Result->SetArrayField(TEXT("scalar_parameters"), ScalarParameters);
-    Result->SetArrayField(TEXT("vector_parameters"), VectorParameters);
-    Result->SetArrayField(TEXT("texture_parameters"), TextureParameters);
-    Result->SetArrayField(TEXT("static_switch_parameters"), StaticSwitchParameters);
-    Result->SetNumberField(TEXT("scalar_parameter_count"), ScalarParameters.Num());
-    Result->SetNumberField(TEXT("vector_parameter_count"), VectorParameters.Num());
-    Result->SetNumberField(TEXT("texture_parameter_count"), TextureParameters.Num());
-    Result->SetNumberField(TEXT("static_switch_parameter_count"), StaticSwitchParameters.Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("get_material_parameters"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSetMaterialInstanceScalarParameter(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterialInstanceConstant* MaterialInstance = nullptr;
-    FAssetData AssetData;
-    FString ErrorMessage;
-    if (!ResolveMaterialInstanceFromParams(Params, MaterialInstance, AssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString ParameterNameText;
-    if (!Params->TryGetStringField(TEXT("parameter_name"), ParameterNameText) || ParameterNameText.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'parameter_name' 参数"));
-    }
-
-    if (!Params->HasField(TEXT("value")))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'value' 参数"));
-    }
-
-    const float Value = static_cast<float>(Params->GetNumberField(TEXT("value")));
-    UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(MaterialInstance, *ParameterNameText, Value);
-
-    UMaterialEditingLibrary::UpdateMaterialInstance(MaterialInstance);
-    MaterialInstance->PostEditChange();
-    MaterialInstance->MarkPackageDirty();
-    if (!UEditorAssetLibrary::SaveAsset(AssetData.PackageName.ToString(), false))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("保存材质实例失败: %s"), *AssetData.PackageName.ToString()));
-    }
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("parameter_name"), ParameterNameText);
-    Result->SetNumberField(TEXT("value"), UMaterialEditingLibrary::GetMaterialInstanceScalarParameterValue(MaterialInstance, *ParameterNameText));
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("set_material_instance_scalar_parameter"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSetMaterialInstanceVectorParameter(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterialInstanceConstant* MaterialInstance = nullptr;
-    FAssetData AssetData;
-    FString ErrorMessage;
-    if (!ResolveMaterialInstanceFromParams(Params, MaterialInstance, AssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString ParameterNameText;
-    if (!Params->TryGetStringField(TEXT("parameter_name"), ParameterNameText) || ParameterNameText.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'parameter_name' 参数"));
-    }
-
-    FLinearColor Value;
-    if (!TryParseLinearColor(Params, TEXT("value"), Value, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(MaterialInstance, *ParameterNameText, Value);
-
-    UMaterialEditingLibrary::UpdateMaterialInstance(MaterialInstance);
-    MaterialInstance->PostEditChange();
-    MaterialInstance->MarkPackageDirty();
-    if (!UEditorAssetLibrary::SaveAsset(AssetData.PackageName.ToString(), false))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("保存材质实例失败: %s"), *AssetData.PackageName.ToString()));
-    }
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("parameter_name"), ParameterNameText);
-    Result->SetArrayField(
-        TEXT("value"),
-        MakeLinearColorArray(UMaterialEditingLibrary::GetMaterialInstanceVectorParameterValue(MaterialInstance, *ParameterNameText)));
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("set_material_instance_vector_parameter"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSetMaterialInstanceTextureParameter(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterialInstanceConstant* MaterialInstance = nullptr;
-    FAssetData AssetData;
-    FString ErrorMessage;
-    if (!ResolveMaterialInstanceFromParams(Params, MaterialInstance, AssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString ParameterNameText;
-    if (!Params->TryGetStringField(TEXT("parameter_name"), ParameterNameText) || ParameterNameText.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'parameter_name' 参数"));
-    }
-
-    FString TextureReference;
-    if (!Params->TryGetStringField(TEXT("texture_asset_path"), TextureReference))
-    {
-        Params->TryGetStringField(TEXT("texture"), TextureReference);
-    }
-    if (TextureReference.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'texture_asset_path' 参数"));
-    }
-
-    FAssetData TextureAssetData;
-    if (!ResolveAssetReference(TextureReference, TextureAssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UTexture* Texture = Cast<UTexture>(TextureAssetData.GetAsset());
-    if (!Texture)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("资源不是 Texture: %s"), *TextureAssetData.GetObjectPathString()));
-    }
-
-    UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(MaterialInstance, *ParameterNameText, Texture);
-
-    UMaterialEditingLibrary::UpdateMaterialInstance(MaterialInstance);
-    MaterialInstance->PostEditChange();
-    MaterialInstance->MarkPackageDirty();
-    if (!UEditorAssetLibrary::SaveAsset(AssetData.PackageName.ToString(), false))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("保存材质实例失败: %s"), *AssetData.PackageName.ToString()));
-    }
-
-    UTexture* CurrentTexture = UMaterialEditingLibrary::GetMaterialInstanceTextureParameterValue(MaterialInstance, *ParameterNameText);
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(AssetData);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("parameter_name"), ParameterNameText);
-    Result->SetStringField(TEXT("texture_name"), CurrentTexture ? CurrentTexture->GetName() : FString());
-    Result->SetStringField(TEXT("texture_path"), CurrentTexture ? CurrentTexture->GetPathName() : FString());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("set_material_instance_texture_parameter"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleAssignMaterialToActor(const TSharedPtr<FJsonObject>& Params)

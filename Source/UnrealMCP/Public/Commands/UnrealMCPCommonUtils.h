@@ -52,6 +52,21 @@ public:
     static TSharedPtr<FJsonObject> CreateSuccessResponse(const TSharedPtr<FJsonObject>& Data = nullptr);
 
     /**
+     * @brief 调用插件 `Content/Python` 下的本地 Python 命令实现。
+     * @param [in] ModuleName Python 模块名，例如 `commands.assets.asset_commands`。
+     * @param [in] FunctionName Python 函数名。
+     * @param [in] CommandName 业务命令名，会原样传给 Python 侧分发器。
+     * @param [in] Params 命令参数 JSON。
+     * @return TSharedPtr<FJsonObject> Python 返回的 JSON 结果；失败时返回标准错误响应。
+     * @note 该接口用于把“厚 C++ 逻辑”迁移为“薄 C++ 外壳 + 本地 Python 实现”。
+     */
+    static TSharedPtr<FJsonObject> ExecuteLocalPythonCommand(
+        const FString& ModuleName,
+        const FString& FunctionName,
+        const FString& CommandName,
+        const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 从 JSON 字段读取 int 数组。
      * @param [in] JsonObject 源 JSON 对象。
      * @param [in] FieldName 字段名称。

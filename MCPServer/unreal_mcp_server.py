@@ -48,6 +48,7 @@ SLOW_RESPONSE_COMMANDS = {
     "fixup_redirectors",
     "get_asset_summary",
     "get_blueprint_summary",
+    "create_asset",
     "take_highres_screenshot",
     "capture_viewport_sequence",
     "open_asset_editor",
@@ -476,12 +477,15 @@ def info():
     - `get_asset_dependencies(asset_path="", object_path="", asset_name="", name="")` - Query detailed dependencies
     - `get_asset_referencers(asset_path="", object_path="", asset_name="", name="")` - Query detailed referencers
     - `get_asset_summary(asset_path="", object_path="", asset_name="", name="")` - Load asset and summarize by type; WidgetBlueprint summaries include detailed widget layout data when available
+    - `create_asset(name, asset_class, path="/Game", factory_class="", parent_class="", unique_name=False, save_asset=True)` - Create a generic asset with a UE factory; when `factory_class` is omitted, built-in defaults cover common asset classes such as Curve/Material/Texture/LevelSequence
     - `save_asset(asset_path="", object_path="", asset_name="", name="", only_if_dirty=False)` - Save an asset resolved by path or name
     - `import_asset(destination_path, filename="", source_files=[], destination_name="", async_import=True)` - Import external files into the Content Browser; currently uses async import to avoid UE5.7 Interchange sync assertions
     - `export_asset(export_path, asset_path="", asset_paths=[], clean_filenames=True)` - Export one or more assets to an external directory
     - `reimport_asset(asset_path="", asset_paths=[], ...)` - Reimport existing assets from their recorded source files; currently uses async reimport to avoid UE5.7 Interchange sync assertions
     - `fixup_redirectors(directory_path="", directory_paths=[], asset_path="", asset_paths=[], ...)` - Fix redirector references; returns idempotent success when none are found
     - `get_blueprint_summary(asset_path="", object_path="", asset_name="", name="")` - Load Blueprint asset and summarize structure; WidgetBlueprint results include `widget_tree`, slot/layout data, `bindings` and `animations`
+    - `create_material_function(name, path="/Game/Materials", function_class="MaterialFunction")` - Create Material Function / Layer / Layer Blend assets
+    - `create_render_target(name, path="/Game/RenderTargets", width=1024, height=1024, format="RTF_RGBA16F", clear_color=None, auto_generate_mips=False)` - Create Texture Render Target 2D assets
     
     ## Blueprint Node Management
     - `add_blueprint_event_node(blueprint_name, event_type)` - Add event nodes

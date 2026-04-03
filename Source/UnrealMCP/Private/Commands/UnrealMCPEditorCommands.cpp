@@ -1715,38 +1715,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleMakeDirectory(const TSharedPtr<FJsonObject>& Params)
 {
-    FString DirectoryPath;
-    if (!Params->TryGetStringField(TEXT("directory_path"), DirectoryPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'directory_path' parameter"));
-    }
-
-    if (!DirectoryPath.StartsWith(TEXT("/Game")))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("'directory_path' must start with /Game"));
-    }
-
-    UEditorAssetSubsystem* EditorAssetSubsystem = GEditor ? GEditor->GetEditorSubsystem<UEditorAssetSubsystem>() : nullptr;
-    if (EditorAssetSubsystem && EditorAssetSubsystem->DoesDirectoryExist(DirectoryPath))
-    {
-        TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-        ResultObj->SetBoolField(TEXT("success"), true);
-        ResultObj->SetBoolField(TEXT("already_exists"), true);
-        ResultObj->SetStringField(TEXT("directory_path"), DirectoryPath);
-        return ResultObj;
-    }
-
-    const bool bOk = UEditorAssetLibrary::MakeDirectory(DirectoryPath);
-    if (!bOk)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Failed to create directory: %s"), *DirectoryPath));
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetStringField(TEXT("directory_path"), DirectoryPath);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("make_directory"),
+        Params);
 }
 
 /**
@@ -1756,55 +1729,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleMakeDirectory(const TSha
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDuplicateAsset(const TSharedPtr<FJsonObject>& Params)
 {
-    FString SourceAssetPath;
-    FString DestinationAssetPath;
-    bool bOverwrite = false;
-
-    if (!Params->TryGetStringField(TEXT("source_asset_path"), SourceAssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'source_asset_path' parameter"));
-    }
-    if (!Params->TryGetStringField(TEXT("destination_asset_path"), DestinationAssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'destination_asset_path' parameter"));
-    }
-    Params->TryGetBoolField(TEXT("overwrite"), bOverwrite);
-
-    if (!UEditorAssetLibrary::DoesAssetExist(SourceAssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Source asset does not exist: %s"), *SourceAssetPath));
-    }
-
-    if (UEditorAssetLibrary::DoesAssetExist(DestinationAssetPath))
-    {
-        if (!bOverwrite)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(
-                FString::Printf(TEXT("Destination asset already exists: %s"), *DestinationAssetPath));
-        }
-
-        if (!UEditorAssetLibrary::DeleteAsset(DestinationAssetPath))
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(
-                FString::Printf(TEXT("Failed to remove existing destination asset: %s"), *DestinationAssetPath));
-        }
-    }
-
-    UObject* DuplicatedAsset = UEditorAssetLibrary::DuplicateAsset(SourceAssetPath, DestinationAssetPath);
-    if (DuplicatedAsset == nullptr)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Failed to duplicate asset from %s to %s"), *SourceAssetPath, *DestinationAssetPath));
-    }
-
-    UEditorAssetLibrary::SaveAsset(DestinationAssetPath, false);
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetStringField(TEXT("source_asset_path"), SourceAssetPath);
-    ResultObj->SetStringField(TEXT("destination_asset_path"), DestinationAssetPath);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("duplicate_asset"),
+        Params);
 }
 
 /**

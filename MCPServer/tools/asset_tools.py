@@ -75,6 +75,7 @@ def register_asset_tools(mcp: FastMCP):
         ctx: Context,
         path: str = "/Game",
         query: str = "",
+        query_mode: str = "contains",
         class_name: str = "",
         recursive_paths: bool = True,
         include_tags: bool = False,
@@ -86,6 +87,7 @@ def register_asset_tools(mcp: FastMCP):
         params = {
             "path": path,
             "query": query,
+            "query_mode": query_mode,
             "class_name": class_name,
             "recursive_paths": recursive_paths,
             "include_tags": include_tags,
@@ -156,6 +158,31 @@ def register_asset_tools(mcp: FastMCP):
         if not params:
             return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
         return _send_asset_command("get_asset_summary", params)
+
+    @mcp.tool()
+    def create_asset(
+        ctx: Context,
+        name: str,
+        asset_class: str,
+        path: str = "/Game",
+        factory_class: str = "",
+        parent_class: str = "",
+        unique_name: bool = False,
+        save_asset: bool = True
+    ) -> Dict[str, Any]:
+        """Create a generic asset through a UE factory, using a built-in default factory when available."""
+        del ctx
+
+        params: Dict[str, Any] = {
+            "name": name,
+            "asset_class": asset_class,
+            "path": path,
+            "factory_class": factory_class,
+            "parent_class": parent_class,
+            "unique_name": unique_name,
+            "save_asset": save_asset,
+        }
+        return _send_asset_command("create_asset", params)
 
     @mcp.tool()
     def save_asset(
@@ -329,6 +356,44 @@ def register_asset_tools(mcp: FastMCP):
         })
 
     @mcp.tool()
+    def batch_rename_assets(
+        ctx: Context,
+        operations: List[Dict[str, Any]],
+        overwrite: bool = False,
+        stop_on_error: bool = True
+    ) -> Dict[str, Any]:
+        """Rename multiple assets in one request."""
+        del ctx
+
+        if not operations:
+            return {"success": False, "message": "operations is required"}
+        return _send_asset_command("batch_rename_assets", {
+            "operations": operations,
+            "overwrite": overwrite,
+            "stop_on_error": stop_on_error,
+        })
+
+    @mcp.tool()
+    def batch_move_assets(
+        ctx: Context,
+        asset_paths: List[str],
+        destination_path: str,
+        overwrite: bool = False,
+        stop_on_error: bool = True
+    ) -> Dict[str, Any]:
+        """Move multiple assets into the same destination path."""
+        del ctx
+
+        if not asset_paths:
+            return {"success": False, "message": "asset_paths is required"}
+        return _send_asset_command("batch_move_assets", {
+            "asset_paths": asset_paths,
+            "destination_path": destination_path,
+            "overwrite": overwrite,
+            "stop_on_error": stop_on_error,
+        })
+
+    @mcp.tool()
     def delete_asset(
         ctx: Context,
         asset_path: str = "",
@@ -492,6 +557,50 @@ def register_asset_tools(mcp: FastMCP):
             "name": name,
             "path": path
         })
+
+    @mcp.tool()
+    def create_material_function(
+        ctx: Context,
+        name: str,
+        path: str = "/Game/Materials",
+        function_class: str = "MaterialFunction"
+    ) -> Dict[str, Any]:
+        """Create a new Material Function asset."""
+        del ctx
+
+        return _send_asset_command("create_material_function", {
+            "name": name,
+            "path": path,
+            "function_class": function_class,
+        })
+
+    @mcp.tool()
+    def create_render_target(
+        ctx: Context,
+        name: str,
+        path: str = "/Game/RenderTargets",
+        width: int = 1024,
+        height: int = 1024,
+        format: str = "RTF_RGBA16F",
+        clear_color: Optional[List[float]] = None,
+        auto_generate_mips: bool = False
+    ) -> Dict[str, Any]:
+        """Create a new Texture Render Target 2D asset."""
+        del ctx
+
+        params: Dict[str, Any] = {
+            "name": name,
+            "path": path,
+            "width": width,
+            "height": height,
+            "format": format,
+            "auto_generate_mips": auto_generate_mips,
+        }
+        if clear_color is not None:
+            if len(clear_color) != 4:
+                return {"success": False, "message": "clear_color must contain 4 floats [R, G, B, A]"}
+            params["clear_color"] = [float(channel) for channel in clear_color]
+        return _send_asset_command("create_render_target", params)
 
     @mcp.tool()
     def create_material_instance(

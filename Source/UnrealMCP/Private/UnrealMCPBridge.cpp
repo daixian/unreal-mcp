@@ -362,6 +362,7 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("get_asset_metadata") ||
                      CommandType == TEXT("get_asset_dependencies") ||
                      CommandType == TEXT("get_asset_referencers") ||
+                     CommandType == TEXT("create_asset") ||
                      CommandType == TEXT("save_asset") ||
                      CommandType == TEXT("import_asset") ||
                      CommandType == TEXT("export_asset") ||
@@ -372,6 +373,8 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("rename_asset") ||
                      CommandType == TEXT("move_asset") ||
                      CommandType == TEXT("delete_asset") ||
+                     CommandType == TEXT("batch_rename_assets") ||
+                     CommandType == TEXT("batch_move_assets") ||
                      CommandType == TEXT("set_asset_metadata") ||
                      CommandType == TEXT("consolidate_assets") ||
                      CommandType == TEXT("replace_asset_references") ||
@@ -379,6 +382,8 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("sync_content_browser_to_assets") ||
                      CommandType == TEXT("save_all_dirty_assets") ||
                      CommandType == TEXT("create_material") ||
+                     CommandType == TEXT("create_material_function") ||
+                     CommandType == TEXT("create_render_target") ||
                      CommandType == TEXT("create_material_instance") ||
                      CommandType == TEXT("get_material_parameters") ||
                      CommandType == TEXT("set_material_instance_scalar_parameter") ||

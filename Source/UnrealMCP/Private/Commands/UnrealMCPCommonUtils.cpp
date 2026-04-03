@@ -3,6 +3,7 @@
  * @brief UnrealMCP 公共工具实现，提供 JSON/Blueprint/反射辅助能力。
  */
 #include "Commands/UnrealMCPCommonUtils.h"
+#include "IPythonScriptPlugin.h"
 #include "GameFramework/Actor.h"
 #include "Engine/Blueprint.h"
 #include "EdGraph/EdGraph.h"
@@ -30,12 +31,113 @@
 #include "Engine/BlueprintGeneratedClass.h"
 #include "BlueprintNodeSpawner.h"
 #include "BlueprintActionDatabase.h"
+#include "Misc/Base64.h"
 #include "Misc/PackageName.h"
 #include "Modules/ModuleManager.h"
+#include "Interfaces/IPluginManager.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 
 /** @brief JSON 工具函数分组。 */
+
+static const TCHAR* UnrealMCPLocalPythonJsonBeginMarker = TEXT("__UNREALMCP_LOCAL_PYTHON_JSON_BEGIN__");
+static const TCHAR* UnrealMCPLocalPythonJsonEndMarker = TEXT("__UNREALMCP_LOCAL_PYTHON_JSON_END__");
+
+/**
+ * @brief 将 JSON 对象序列化为字符串。
+ * @param [in] JsonObject 源 JSON 对象。
+ * @param [out] OutJsonText 输出 JSON 文本。
+ * @return bool 序列化成功返回 true。
+ */
+static bool UnrealMCPSerializeJsonObjectToString(const TSharedPtr<FJsonObject>& JsonObject, FString& OutJsonText)
+{
+    if (!JsonObject.IsValid())
+    {
+        return false;
+    }
+
+    OutJsonText.Reset();
+    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutJsonText);
+    return FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+}
+
+/**
+ * @brief 将字符串转成 UTF-8 Base64。
+ * @param [in] Text 输入文本。
+ * @return FString Base64 文本。
+ */
+static FString UnrealMCPEncodeUtf8Base64(const FString& Text)
+{
+    FTCHARToUTF8 Utf8Converter(*Text);
+    return FBase64::Encode(reinterpret_cast<const uint8*>(Utf8Converter.Get()), Utf8Converter.Length());
+}
+
+/**
+ * @brief 获取插件内容目录下的本地 Python 根目录。
+ * @param [out] OutPythonRoot 输出目录绝对路径。
+ * @param [out] OutErrorMessage 失败时的错误信息。
+ * @return bool 获取成功返回 true。
+ */
+static bool UnrealMCPResolveLocalPythonRoot(FString& OutPythonRoot, FString& OutErrorMessage)
+{
+    const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("UnrealMCP"));
+    if (!Plugin.IsValid())
+    {
+        OutErrorMessage = TEXT("未找到 UnrealMCP 插件目录");
+        return false;
+    }
+
+    OutPythonRoot = FPaths::Combine(Plugin->GetContentDir(), TEXT("Python"));
+    if (!FPaths::DirectoryExists(OutPythonRoot))
+    {
+        OutErrorMessage = FString::Printf(TEXT("本地 Python 目录不存在: %s"), *OutPythonRoot);
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief 从 Python 日志输出中提取 JSON 结果片段。
+ * @param [in] CombinedOutput 合并后的全部输出文本。
+ * @param [out] OutJsonText 提取出的 JSON 文本。
+ * @param [out] OutErrorMessage 失败时的错误信息。
+ * @return bool 提取成功返回 true。
+ */
+static bool UnrealMCPExtractLocalPythonJson(
+    const FString& CombinedOutput,
+    FString& OutJsonText,
+    FString& OutErrorMessage)
+{
+    const FString BeginMarker(UnrealMCPLocalPythonJsonBeginMarker);
+    const FString EndMarker(UnrealMCPLocalPythonJsonEndMarker);
+
+    const int32 BeginIndex = CombinedOutput.Find(BeginMarker, ESearchCase::CaseSensitive);
+    if (BeginIndex == INDEX_NONE)
+    {
+        OutErrorMessage = TEXT("本地 Python 输出中缺少 JSON 起始标记");
+        return false;
+    }
+
+    const int32 JsonStartIndex = BeginIndex + BeginMarker.Len();
+    const int32 EndIndex = CombinedOutput.Find(EndMarker, ESearchCase::CaseSensitive, ESearchDir::FromStart, JsonStartIndex);
+    if (EndIndex == INDEX_NONE)
+    {
+        OutErrorMessage = TEXT("本地 Python 输出中缺少 JSON 结束标记");
+        return false;
+    }
+
+    OutJsonText = CombinedOutput.Mid(JsonStartIndex, EndIndex - JsonStartIndex).TrimStartAndEnd();
+    if (OutJsonText.IsEmpty())
+    {
+        OutErrorMessage = TEXT("本地 Python 返回了空 JSON");
+        return false;
+    }
+
+    return true;
+}
 
 /**
  * @brief 创建统一错误响应对象。
@@ -66,6 +168,125 @@ TSharedPtr<FJsonObject> FUnrealMCPCommonUtils::CreateSuccessResponse(const TShar
     }
     
     return ResponseObject;
+}
+
+/**
+ * @brief 执行插件内本地 Python 命令并回读 JSON 结果。
+ * @param [in] ModuleName Python 模块名。
+ * @param [in] FunctionName Python 函数名。
+ * @param [in] CommandName 业务命令名。
+ * @param [in] Params 业务参数 JSON。
+ * @return TSharedPtr<FJsonObject> Python 返回结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+    const FString& ModuleName,
+    const FString& FunctionName,
+    const FString& CommandName,
+    const TSharedPtr<FJsonObject>& Params)
+{
+    IPythonScriptPlugin* PythonScriptPlugin = IPythonScriptPlugin::Get();
+    if (!PythonScriptPlugin)
+    {
+        return CreateErrorResponse(TEXT("PythonScriptPlugin 未启用或未加载"));
+    }
+
+    PythonScriptPlugin->ForceEnablePythonAtRuntime();
+    if (!PythonScriptPlugin->IsPythonInitialized())
+    {
+        return CreateErrorResponse(TEXT("PythonScriptPlugin 尚未初始化完成"));
+    }
+
+    FString LocalPythonRoot;
+    FString ErrorMessage;
+    if (!UnrealMCPResolveLocalPythonRoot(LocalPythonRoot, ErrorMessage))
+    {
+        return CreateErrorResponse(ErrorMessage);
+    }
+
+    TSharedPtr<FJsonObject> SafeParams = Params.IsValid() ? Params : MakeShared<FJsonObject>();
+    FString ParamsJsonText;
+    if (!UnrealMCPSerializeJsonObjectToString(SafeParams, ParamsJsonText))
+    {
+        return CreateErrorResponse(TEXT("序列化本地 Python 参数失败"));
+    }
+
+    const FString PythonCommand = FString::Printf(
+        TEXT("import base64\n")
+        TEXT("import importlib\n")
+        TEXT("import json\n")
+        TEXT("import sys\n")
+        TEXT("import traceback\n")
+        TEXT("_python_root = base64.b64decode('%s').decode('utf-8')\n")
+        TEXT("if _python_root not in sys.path:\n")
+        TEXT("    sys.path.insert(0, _python_root)\n")
+        TEXT("try:\n")
+        TEXT("    from commands.common import command_bridge as _command_bridge\n")
+        TEXT("    importlib.reload(_command_bridge)\n")
+        TEXT("    _result = _command_bridge.LocalCommandBridge.run(\n")
+        TEXT("        module_name=base64.b64decode('%s').decode('utf-8'),\n")
+        TEXT("        function_name=base64.b64decode('%s').decode('utf-8'),\n")
+        TEXT("        command_name=base64.b64decode('%s').decode('utf-8'),\n")
+        TEXT("        params_json=base64.b64decode('%s').decode('utf-8'))\n")
+        TEXT("except Exception:\n")
+        TEXT("    _result = {'success': False, 'error': '本地 Python 执行失败', 'traceback': traceback.format_exc()}\n")
+        TEXT("print('%s')\n")
+        TEXT("print(json.dumps(_result, ensure_ascii=False))\n")
+        TEXT("print('%s')\n"),
+        *UnrealMCPEncodeUtf8Base64(LocalPythonRoot),
+        *UnrealMCPEncodeUtf8Base64(ModuleName),
+        *UnrealMCPEncodeUtf8Base64(FunctionName),
+        *UnrealMCPEncodeUtf8Base64(CommandName),
+        *UnrealMCPEncodeUtf8Base64(ParamsJsonText),
+        UnrealMCPLocalPythonJsonBeginMarker,
+        UnrealMCPLocalPythonJsonEndMarker);
+
+    FPythonCommandEx PythonCommandRequest;
+    PythonCommandRequest.Command = PythonCommand;
+    PythonCommandRequest.ExecutionMode = EPythonCommandExecutionMode::ExecuteFile;
+    PythonCommandRequest.FileExecutionScope = EPythonFileExecutionScope::Private;
+    PythonCommandRequest.Flags = EPythonCommandFlags::Unattended;
+
+    const bool bExecutionSuccess = PythonScriptPlugin->ExecPythonCommandEx(PythonCommandRequest);
+
+    FString CombinedOutput;
+    for (const FPythonLogOutputEntry& Entry : PythonCommandRequest.LogOutput)
+    {
+        CombinedOutput += Entry.Output;
+    }
+    CombinedOutput += PythonCommandRequest.CommandResult;
+
+    FString ResultJsonText;
+    if (!UnrealMCPExtractLocalPythonJson(CombinedOutput, ResultJsonText, ErrorMessage))
+    {
+        const FString ExecutionPrefix = bExecutionSuccess ? TEXT("") : TEXT("ExecPythonCommandEx 执行失败；");
+        return CreateErrorResponse(FString::Printf(
+            TEXT("%s%s，模块=%s，命令=%s，输出=%s"),
+            *ExecutionPrefix,
+            *ErrorMessage,
+            *ModuleName,
+            *CommandName,
+            *CombinedOutput));
+    }
+
+    TSharedPtr<FJsonObject> ResultObject;
+    const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResultJsonText);
+    if (!FJsonSerializer::Deserialize(Reader, ResultObject) || !ResultObject.IsValid())
+    {
+        return CreateErrorResponse(FString::Printf(
+            TEXT("解析本地 Python JSON 结果失败，模块=%s，命令=%s，结果=%s"),
+            *ModuleName,
+            *CommandName,
+            *ResultJsonText));
+    }
+
+    ResultObject->SetStringField(TEXT("implementation"), TEXT("local_python"));
+    ResultObject->SetStringField(TEXT("implementation_module"), ModuleName);
+    ResultObject->SetStringField(TEXT("implementation_command"), CommandName);
+    if (!ResultObject->HasField(TEXT("success")))
+    {
+        ResultObject->SetBoolField(TEXT("success"), bExecutionSuccess);
+    }
+    return ResultObject;
 }
 
 /**

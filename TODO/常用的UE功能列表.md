@@ -3,7 +3,7 @@
 ## 说明
 
 - 本文基于当前仓库本地代码状态整理，范围限定为 `UnrealMCP` 插件应该覆盖的 UE 常用能力。
-- 当前正式暴露的 MCP 工具共 `164` 个，来源于 `Python/tools` 的 7 组工具注册；C++ 侧还有 `create_actor` 兼容别名，但不建议当作正式工具名继续扩展。
+- 当前正式暴露的 MCP 工具共 `169` 个，来源于 `Python/tools` 的 7 组工具注册；C++ 侧还有 `create_actor` 兼容别名，但不建议当作正式工具名继续扩展。
 - 标记说明：
   - `- [x]` 当前已实现，且 Python 工具注册与 C++ 命令分发都已存在。
   - `- [ ]` 当前未实现，建议补齐。
@@ -11,32 +11,32 @@
 
 ## 1. 资产与 Content Browser
 
-- [x] 资产搜索：`search_assets`
-- [ ] 建议增强：`search_assets` 支持通配符查询（如 `*`、`?`），并预留 `query_mode="contains|wildcard|regex"` 扩展
-- [x] 查询资产元数据：`get_asset_metadata`
+- [x] 资产搜索：`search_assets`（本地Python）
+- [x] 资产搜索增强：`search_assets` 支持 `query_mode="contains|wildcard|regex"`（本地Python）
+- [x] 查询资产元数据：`get_asset_metadata`（本地Python）
 - [x] 查询资产依赖：`get_asset_dependencies`
 - [x] 查询资产引用者：`get_asset_referencers`
 - [x] 获取资产摘要：`get_asset_summary`
 - [x] 获取 Blueprint 摘要：`get_blueprint_summary`
-- [x] 保存资产：`save_asset`
-- [x] 创建目录：`make_directory`
-- [x] 复制资产：`duplicate_asset`
-- [x] 重命名资产：`rename_asset`
-- [x] 移动资产：`move_asset`
-- [x] 删除资产：`delete_asset`
-- [ ] 创建通用资产：`create_asset`
-- [x] 导入外部资源：`import_asset`
-- [x] 重新导入资源：`reimport_asset`
-- [x] 导出资源：`export_asset`
+- [x] 保存资产：`save_asset`（本地Python）
+- [x] 创建目录：`make_directory`（本地Python）
+- [x] 复制资产：`duplicate_asset`（本地Python）
+- [x] 重命名资产：`rename_asset`（本地Python）
+- [x] 移动资产：`move_asset`（本地Python）
+- [x] 删除资产：`delete_asset`（本地Python）
+- [x] 创建通用资产：`create_asset`（本地Python）
+- [x] 导入外部资源：`import_asset`（本地Python）
+- [x] 重新导入资源：`reimport_asset`（Python+C++桥接）
+- [x] 导出资源：`export_asset`（本地Python）
 - [x] 修复重定向器：`fixup_redirectors`
-- [x] 合并重复资产：`consolidate_assets`
-- [x] 批量替换引用：`replace_asset_references`
-- [x] 设置资产标签和元数据：`set_asset_metadata`
-- [x] 同步 Content Browser 选中状态：`sync_content_browser_to_assets`
-- [x] 获取当前选中资产：`get_selected_assets`
-- [x] 保存全部脏资产：`save_all_dirty_assets`
+- [x] 合并重复资产：`consolidate_assets`（本地Python）
+- [x] 批量替换引用：`replace_asset_references`（本地Python）
+- [x] 设置资产标签和元数据：`set_asset_metadata`（本地Python）
+- [x] 同步 Content Browser 选中状态：`sync_content_browser_to_assets`（本地Python）
+- [x] 获取当前选中资产：`get_selected_assets`（本地Python）
+- [x] 保存全部脏资产：`save_all_dirty_assets`（本地Python）
 - [ ] 资产签出/提交/还原：`checkout_asset`、`submit_asset`、`revert_asset`
-- [ ] 批量重命名与批量移动：`batch_rename_assets`、`batch_move_assets`
+- [x] 批量重命名与批量移动：`batch_rename_assets`、`batch_move_assets`（本地Python）
 
 ## 2. 关卡 / World / Actor
 
@@ -231,18 +231,18 @@
 
 ## 8. 材质 / 渲染 / 灯光
 
-- [x] 创建材质：`create_material`
-- [x] 创建材质实例：`create_material_instance`
-- [x] 读取材质参数：`get_material_parameters`
-- [x] 设置材质实例参数：`set_material_instance_scalar_parameter`、`set_material_instance_vector_parameter`、`set_material_instance_texture_parameter`
+- [x] 创建材质：`create_material`（本地Python）
+- [x] 创建 Material Function：`create_material_function`（本地Python）
+- [x] 创建 Render Target：`create_render_target`（本地Python）
+- [x] 创建材质实例：`create_material_instance`（本地Python）
+- [x] 读取材质参数：`get_material_parameters`（本地Python）
+- [x] 设置材质实例参数：`set_material_instance_scalar_parameter`、`set_material_instance_vector_parameter`、`set_material_instance_texture_parameter`（本地Python）
 - [x] 给 Actor / 组件赋材质：`assign_material_to_actor`、`assign_material_to_component`
 - [x] 替换指定材质槽：`replace_material_slot`
 - [x] 添加材质表达式节点：`add_material_expression`
 - [x] 连接材质表达式：`connect_material_expressions`
 - [x] 自动整理材质图：`layout_material_graph`
 - [x] 编译材质：`compile_material`
-- [ ] 创建 Material Function：`create_material_function`
-- [ ] 创建 Render Target：`create_render_target`
 - [ ] 场景捕捉到 Render Target：`capture_scene_to_render_target`
 - [ ] 设置 PostProcessVolume 参数：`set_post_process_settings`
 - [ ] 创建和调整灯光 Actor：`create_light`、`set_light_properties`
