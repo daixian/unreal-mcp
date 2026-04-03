@@ -296,10 +296,6 @@ def get_unreal_connection() -> Optional[UnrealConnection]:
     try:
         if _unreal_connection is None:
             _unreal_connection = UnrealConnection()
-            if not _unreal_connection.connect():
-                logger.warning("Could not connect to Unreal Engine")
-                _unreal_connection = None
-        
         return _unreal_connection
     except Exception as e:
         logger.error(f"Error getting Unreal connection: {e}")
@@ -311,11 +307,8 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[Dict[str, Any]]:
     global _unreal_connection
     logger.info("UnrealMCP server starting up")
     try:
-        _unreal_connection = get_unreal_connection()
-        if _unreal_connection:
-            logger.info("Connected to Unreal Engine on startup")
-        else:
-            logger.warning("Could not connect to Unreal Engine on startup")
+        _unreal_connection = UnrealConnection()
+        logger.info("已初始化 UnrealConnection，等待工具按需建立 socket 连接")
     except Exception as e:
         logger.error(f"Error connecting to Unreal Engine on startup: {e}")
         _unreal_connection = None

@@ -17,6 +17,10 @@
 
 /** @brief 接收缓冲区大小（字节）。 */
 constexpr int32 MCPReceiveBufferSize = 8192;
+/** @brief 单次等待客户端可读事件的时长。 */
+constexpr double MCPClientReadWaitMilliseconds = 100.0;
+/** @brief 空闲客户端最大保活时长，超过后主动断开。 */
+constexpr double MCPClientIdleTimeoutSeconds = 2.0;
 
 static bool SendUtf8Message(const TSharedPtr<FSocket>& Socket, const FString& Message)
 {
@@ -242,14 +246,44 @@ void FMCPServerRunnable::HandleClientConnection(TSharedPtr<FSocket> InClientSock
     uint8 Buffer[MCPReceiveBufferSize];
     TArray<uint8> PendingBytes;
     PendingBytes.Reserve(MCPReceiveBufferSize);
+    const FTimespan ReadWaitTime = FTimespan::FromMilliseconds(MCPClientReadWaitMilliseconds);
+    double LastReceiveTimeSeconds = FPlatformTime::Seconds();
 
     while (bRunning && InClientSocket.IsValid())
     {
+        if (!InClientSocket->Wait(ESocketWaitConditions::WaitForRead, ReadWaitTime))
+        {
+            const ESocketConnectionState ConnectionState = InClientSocket->GetConnectionState();
+            if (ConnectionState != SCS_Connected)
+            {
+                UE_LOG(
+                    LogTemp,
+                    Warning,
+                    TEXT("MCPServerRunnable: 客户端连接状态异常，结束处理。ConnectionState=%d"),
+                    static_cast<int32>(ConnectionState));
+                break;
+            }
+
+            const double IdleDurationSeconds = FPlatformTime::Seconds() - LastReceiveTimeSeconds;
+            if (IdleDurationSeconds >= MCPClientIdleTimeoutSeconds)
+            {
+                UE_LOG(
+                    LogTemp,
+                    Warning,
+                    TEXT("MCPServerRunnable: 客户端在 %.2f 秒内没有发送任何数据，主动断开空闲连接"),
+                    IdleDurationSeconds);
+                break;
+            }
+
+            continue;
+        }
+
         int32 BytesRead = 0;
         const bool bReadSuccess = InClientSocket->Recv(Buffer, MCPReceiveBufferSize, BytesRead, ESocketReceiveFlags::None);
 
         if (BytesRead > 0)
         {
+            LastReceiveTimeSeconds = FPlatformTime::Seconds();
             PendingBytes.Append(Buffer, BytesRead);
             UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 本次收到 %d 字节，累计缓冲区 %d 字节"), BytesRead, PendingBytes.Num());
 
@@ -274,6 +308,11 @@ void FMCPServerRunnable::HandleClientConnection(TSharedPtr<FSocket> InClientSock
         {
             const int32 LastError = (int32)ISocketSubsystem::Get()->GetLastErrorCode();
             UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: 客户端连接结束或读取失败，错误码: %d"), LastError);
+            break;
+        }
+        else
+        {
+            UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 客户端连接已关闭，没有收到新数据"));
             break;
         }
     }
