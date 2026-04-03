@@ -322,19 +322,31 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("compile_live_coding") ||
                      CommandType == TEXT("get_live_coding_state") ||
                      CommandType == TEXT("find_actors_by_name") ||
+                     CommandType == TEXT("find_actors") ||
                      CommandType == TEXT("spawn_actor") ||
+                     CommandType == TEXT("spawn_actor_from_class") ||
                      CommandType == TEXT("create_actor") ||
                      CommandType == TEXT("delete_actor") || 
                      CommandType == TEXT("set_actor_transform") ||
                      CommandType == TEXT("get_actor_properties") ||
                      CommandType == TEXT("get_actor_components") ||
                      CommandType == TEXT("get_scene_components") ||
+                     CommandType == TEXT("get_world_settings") ||
+                     CommandType == TEXT("set_world_settings") ||
                      CommandType == TEXT("set_actor_property") ||
+                     CommandType == TEXT("set_actor_tags") ||
+                     CommandType == TEXT("set_actor_folder_path") ||
+                     CommandType == TEXT("set_actor_visibility") ||
+                     CommandType == TEXT("set_actor_mobility") ||
                      CommandType == TEXT("spawn_blueprint_actor") ||
                      CommandType == TEXT("duplicate_actor") ||
                      CommandType == TEXT("select_actor") ||
                      CommandType == TEXT("get_selected_actors") ||
                      CommandType == TEXT("get_editor_selection") ||
+                     CommandType == TEXT("create_light") ||
+                     CommandType == TEXT("set_light_properties") ||
+                     CommandType == TEXT("capture_scene_to_render_target") ||
+                     CommandType == TEXT("set_post_process_settings") ||
                      CommandType == TEXT("attach_actor") ||
                      CommandType == TEXT("detach_actor") ||
                      CommandType == TEXT("set_actors_transform") ||

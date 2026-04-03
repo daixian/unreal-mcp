@@ -3,7 +3,7 @@
 ## 说明
 
 - 本文基于当前仓库本地代码状态整理，范围限定为 `UnrealMCP` 插件应该覆盖的 UE 常用能力。
-- 当前正式暴露的 MCP 工具共 `169` 个，来源于 `Python/tools` 的 7 组工具注册；C++ 侧还有 `create_actor` 兼容别名，但不建议当作正式工具名继续扩展。
+- 当前正式暴露的 MCP 工具共 `181` 个，来源于 `Python/tools` 的 7 组工具注册；C++ 侧还有 `create_actor` 兼容别名，但不建议当作正式工具名继续扩展。
 - 标记说明：
   - `- [x]` 当前已实现，且 Python 工具注册与 C++ 命令分发都已存在。
   - `- [ ]` 当前未实现，建议补齐。
@@ -40,35 +40,35 @@
 
 ## 2. 关卡 / World / Actor
 
-- [x] 加载关卡：`load_level`
-- [x] 保存当前关卡：`save_current_level`
-- [x] 列出关卡 Actor：`get_actors_in_level`
-- [x] 按名称查找 Actor：`find_actors_by_name`
-- [x] 生成原生 Actor：`spawn_actor`
-- [x] 删除 Actor：`delete_actor`
-- [x] 设置 Actor Transform：`set_actor_transform`
-- [x] 设置 Actor 属性：`set_actor_property`
-- [x] 获取 Actor 属性：`get_actor_properties`
-- [x] 获取单个 Actor 组件：`get_actor_components`
-- [x] 获取场景组件总览：`get_scene_components`
-- [x] 聚焦视口：`focus_viewport`
+- [x] 加载关卡：`load_level`（本地Python）
+- [x] 保存当前关卡：`save_current_level`（本地Python）
+- [x] 列出关卡 Actor：`get_actors_in_level`（本地Python）
+- [x] 按名称查找 Actor：`find_actors_by_name`（本地Python）
+- [x] 生成原生 Actor：`spawn_actor`（本地Python）
+- [x] 删除 Actor：`delete_actor`（本地Python）
+- [x] 设置 Actor Transform：`set_actor_transform`（本地Python）
+- [x] 设置 Actor 属性：`set_actor_property`（本地Python）
+- [x] 获取 Actor 属性：`get_actor_properties`（本地Python）
+- [x] 获取单个 Actor 组件：`get_actor_components`（本地Python）
+- [x] 获取场景组件总览：`get_scene_components`（本地Python）
+- [x] 聚焦视口：`focus_viewport`（本地Python）
 - [x] 视口截图：`take_screenshot`
-- [x] 生成 Blueprint Actor：`spawn_blueprint_actor`
-- [x] 复制 Actor：`duplicate_actor`
-- [x] 选中 Actor：`select_actor`
-- [x] 获取当前选中 Actor：`get_selected_actors`
-- [ ] 按类、Tag、Folder、Layer 过滤 Actor：`find_actors`
-- [ ] 设置 Actor 标签：`set_actor_tags`
-- [ ] 设置 Actor Folder：`set_actor_folder_path`
-- [ ] 设置 Actor 可见性/隐藏状态：`set_actor_visibility`
-- [ ] 设置 Actor Mobility：`set_actor_mobility`
-- [x] Attach / Detach Actor：`attach_actor`、`detach_actor`
+- [x] 生成 Blueprint Actor：`spawn_blueprint_actor`（本地Python）
+- [x] 复制 Actor：`duplicate_actor`（本地Python）
+- [x] 选中 Actor：`select_actor`（Python+C++桥接）
+- [x] 获取当前选中 Actor：`get_selected_actors`（本地Python）
+- [x] 按类、Tag、Folder、Layer 过滤 Actor：`find_actors`（本地Python）
+- [x] 设置 Actor 标签：`set_actor_tags`（本地Python）
+- [x] 设置 Actor Folder：`set_actor_folder_path`（本地Python）
+- [x] 设置 Actor 可见性/隐藏状态：`set_actor_visibility`（本地Python）
+- [x] 设置 Actor Mobility：`set_actor_mobility`（本地Python）
+- [x] Attach / Detach Actor：`attach_actor`、`detach_actor`（本地Python）
 - [ ] 在关卡实例上添加组件：`add_component_to_actor`
 - [ ] 在关卡实例上移除组件：`remove_component_from_actor`
-- [ ] 在关卡中按类路径生成对象：`spawn_actor_from_class`
-- [x] 批量设置 Transform：`set_actors_transform`
-- [ ] 获取 World Settings：`get_world_settings`
-- [ ] 设置 World Settings：`set_world_settings`
+- [x] 在关卡中按类路径生成对象：`spawn_actor_from_class`（本地Python）
+- [x] 批量设置 Transform：`set_actors_transform`（本地Python）
+- [x] 获取 World Settings：`get_world_settings`（本地Python）
+- [x] 设置 World Settings：`set_world_settings`（本地Python）
 - [ ] 执行 LineTrace / BoxTrace / SphereTrace：`line_trace`、`box_trace`、`sphere_trace`
 - [ ] 获取鼠标命中结果：`get_hit_result_under_cursor`
 - [ ] 操作数据层：`get_data_layers`、`set_actor_data_layers`
@@ -213,12 +213,12 @@
 - [x] 触发 Live Coding 编译：`compile_live_coding`
 - [x] 获取 Live Coding 状态：`get_live_coding_state`
 - [x] 启动 Standalone Game：`start_standalone_game`
-- [x] 获取编辑器当前选择：`get_editor_selection`
-- [x] 打开任意资产编辑器：`open_asset_editor`
-- [x] 关闭资产编辑器标签：`close_asset_editor`
+- [x] 获取编辑器当前选择：`get_editor_selection`（本地Python）
+- [x] 打开任意资产编辑器：`open_asset_editor`（本地Python）
+- [x] 关闭资产编辑器标签：`close_asset_editor`（本地Python）
 - [x] 执行控制台命令：`execute_console_command`
 - [x] 执行 Unreal Python：`execute_unreal_python`
-- [x] 运行 Editor Utility Widget / Blueprint：`run_editor_utility_widget`、`run_editor_utility_blueprint`
+- [x] 运行 Editor Utility Widget / Blueprint：`run_editor_utility_widget`、`run_editor_utility_blueprint`（本地Python）
 - [x] 读取 Output Log：`get_output_log`
 - [x] 清空 Output Log：`clear_output_log`
 - [x] 读取 Message Log：`get_message_log`
@@ -237,15 +237,15 @@
 - [x] 创建材质实例：`create_material_instance`（本地Python）
 - [x] 读取材质参数：`get_material_parameters`（本地Python）
 - [x] 设置材质实例参数：`set_material_instance_scalar_parameter`、`set_material_instance_vector_parameter`、`set_material_instance_texture_parameter`（本地Python）
-- [x] 给 Actor / 组件赋材质：`assign_material_to_actor`、`assign_material_to_component`
-- [x] 替换指定材质槽：`replace_material_slot`
+- [x] 给 Actor / 组件赋材质：`assign_material_to_actor`、`assign_material_to_component`（本地Python）
+- [x] 替换指定材质槽：`replace_material_slot`（本地Python）
 - [x] 添加材质表达式节点：`add_material_expression`
 - [x] 连接材质表达式：`connect_material_expressions`
 - [x] 自动整理材质图：`layout_material_graph`
 - [x] 编译材质：`compile_material`
-- [ ] 场景捕捉到 Render Target：`capture_scene_to_render_target`
-- [ ] 设置 PostProcessVolume 参数：`set_post_process_settings`
-- [ ] 创建和调整灯光 Actor：`create_light`、`set_light_properties`
+- [x] 场景捕捉到 Render Target：`capture_scene_to_render_target`（本地Python）
+- [x] 设置 PostProcessVolume 参数：`set_post_process_settings`（本地Python）
+- [x] 创建和调整灯光 Actor：`create_light`、`set_light_properties`（本地Python）
 
 ## 9. 骨骼 / 动画 / 角色
 

@@ -33,7 +33,7 @@
 
 需要额外注意的情况：
 
-- `get_actors_in_level` 与 `find_actors_by_name` 在 Python 层做了归一化，成功时直接返回 `success`、`actors`、`actor_count` 等字段。
+- `get_actors_in_level`、`find_actors_by_name` 与 `find_actors` 在 Python 层做了归一化，成功时直接返回 `success`、`actors`、`actor_count` 等字段。
 - 个别 Python 工具在连接 Unreal 失败时，会直接返回 `{"success": false, "message": "..."}` 这一类兼容结构。
 
 ## 工具分组

@@ -744,6 +744,129 @@ class MaterialCommandExecutor:
         )
         return result
 
+    def assign_material_to_actor(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        material_asset, material_identity = self._resolve_material_assignment_from_params(params)
+        target_actor, resolved_world_type = self._resolve_actor_from_params(params)
+        mesh_components = self._collect_mesh_components(target_actor)
+        if not mesh_components:
+            raise AssetCommandError("目标 Actor 上没有 MeshComponent")
+
+        updated_components: List[Dict[str, Any]] = []
+        skipped_components: List[Dict[str, Any]] = []
+        for mesh_component in mesh_components:
+            try:
+                slot_index, slot_name = self._resolve_material_slot_index(
+                    mesh_component,
+                    params,
+                    require_explicit_slot=False,
+                )
+            except AssetCommandError as exc:
+                skipped_components.append(
+                    {
+                        "component_name": mesh_component.get_name(),
+                        "component_path": mesh_component.get_path_name(),
+                        "reason": str(exc),
+                    }
+                )
+                continue
+
+            previous_material = mesh_component.get_material(slot_index)
+            self._mark_material_assignment_dirty(target_actor, mesh_component, resolved_world_type)
+            mesh_component.set_material(slot_index, material_asset)
+            updated_components.append(
+                self._create_material_slot_result(
+                    mesh_component,
+                    slot_index,
+                    slot_name,
+                    previous_material,
+                    material_asset,
+                )
+            )
+
+        if not updated_components:
+            raise AssetCommandError("没有任何组件成功应用材质，请检查材质槽参数")
+
+        return {
+            "success": True,
+            "actor_name": target_actor.get_name(),
+            "actor_path": target_actor.get_path_name(),
+            "world_type": resolved_world_type,
+            "material_name": material_asset.get_name(),
+            "material_path": material_identity["object_path"],
+            "updated_components": updated_components,
+            "skipped_components": skipped_components,
+            "updated_component_count": len(updated_components),
+            "skipped_component_count": len(skipped_components),
+        }
+
+    def assign_material_to_component(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        material_asset, _ = self._resolve_material_assignment_from_params(params)
+        target_actor, resolved_world_type = self._resolve_actor_from_params(params)
+        component_name = str(params.get("component_name", "")).strip()
+        if not component_name:
+            raise AssetCommandError("缺少 'component_name' 参数")
+
+        mesh_component = self._resolve_mesh_component(target_actor, component_name)
+        slot_index, slot_name = self._resolve_material_slot_index(
+            mesh_component,
+            params,
+            require_explicit_slot=False,
+        )
+
+        previous_material = mesh_component.get_material(slot_index)
+        self._mark_material_assignment_dirty(target_actor, mesh_component, resolved_world_type)
+        mesh_component.set_material(slot_index, material_asset)
+
+        result = self._create_material_slot_result(
+            mesh_component,
+            slot_index,
+            slot_name,
+            previous_material,
+            material_asset,
+        )
+        result.update(
+            {
+                "success": True,
+                "actor_name": target_actor.get_name(),
+                "actor_path": target_actor.get_path_name(),
+                "world_type": resolved_world_type,
+            }
+        )
+        return result
+
+    def replace_material_slot(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        material_asset, material_identity = self._resolve_material_assignment_from_params(params)
+        target_actor, resolved_world_type = self._resolve_actor_from_params(params)
+        component_name = str(params.get("component_name", "")).strip()
+        mesh_component = self._resolve_mesh_component(target_actor, component_name)
+        slot_index, slot_name = self._resolve_material_slot_index(
+            mesh_component,
+            params,
+            require_explicit_slot=True,
+        )
+
+        previous_material = mesh_component.get_material(slot_index)
+        self._mark_material_assignment_dirty(target_actor, mesh_component, resolved_world_type)
+        mesh_component.set_material(slot_index, material_asset)
+
+        result = self._create_material_slot_result(
+            mesh_component,
+            slot_index,
+            slot_name,
+            previous_material,
+            material_asset,
+        )
+        result.update(
+            {
+                "success": True,
+                "actor_name": target_actor.get_name(),
+                "actor_path": target_actor.get_path_name(),
+                "world_type": resolved_world_type,
+                "requested_material_path": material_identity["object_path"],
+            }
+        )
+        return result
+
     def _resolve_material_interface_by_reference(self, reference: str) -> unreal.MaterialInterface:
         material_asset = self._resolver.resolve_reference(reference).asset_data.get_asset()
         if not material_asset or not isinstance(material_asset, unreal.MaterialInterface):
@@ -1115,6 +1238,199 @@ class MaterialCommandExecutor:
         unreal.MaterialEditingLibrary.update_material_instance(material_instance)
         self._save_loaded_asset(material_instance, material_instance.get_path_name(), "保存材质实例失败")
 
+    def _resolve_material_assignment_from_params(
+        self,
+        params: Dict[str, Any],
+    ) -> Tuple[unreal.MaterialInterface, Dict[str, Any]]:
+        material_reference = str(
+            params.get("material_asset_path", "")
+            or params.get("material", "")
+            or params.get("material_path", "")
+        ).strip()
+        if not material_reference:
+            raise AssetCommandError("缺少 'material_asset_path' 参数")
+
+        resolved_asset = self._resolver.resolve_reference(material_reference)
+        material_asset = resolved_asset.asset_data.get_asset()
+        if not material_asset or not isinstance(material_asset, unreal.MaterialInterface):
+            raise AssetCommandError(
+                f"资源不是材质或材质实例: {resolved_asset.to_identity()['object_path']}"
+            )
+        return material_asset, resolved_asset.to_identity()
+
+    def _resolve_actor_from_params(self, params: Dict[str, Any]) -> Tuple[unreal.Actor, str]:
+        world, resolved_world_type = self._resolve_world_by_params(params)
+        actors = list(unreal.GameplayStatics.get_all_actors_of_class(world, unreal.Actor) or [])
+
+        actor_path = str(params.get("actor_path", "")).strip()
+        if actor_path:
+            for actor in actors:
+                if actor and actor.get_path_name() == actor_path:
+                    return actor, resolved_world_type
+            raise AssetCommandError(f"未找到 actor_path 对应的 Actor: {actor_path}")
+
+        actor_name = str(params.get("name", "")).strip()
+        if not actor_name:
+            raise AssetCommandError("缺少 'name' 或 'actor_path' 参数")
+
+        for actor in actors:
+            if actor and actor.get_name() == actor_name:
+                return actor, resolved_world_type
+        raise AssetCommandError(f"未找到 Actor: {actor_name}")
+
+    def _resolve_world_by_params(self, params: Dict[str, Any]) -> Tuple[unreal.World, str]:
+        requested_world_type = self._get_requested_world_type(params)
+        if requested_world_type == "editor":
+            editor_world = self._get_editor_world()
+            if not editor_world:
+                raise AssetCommandError("获取编辑器世界失败")
+            return editor_world, "editor"
+
+        if requested_world_type == "pie":
+            pie_world = self._get_pie_world()
+            if not pie_world:
+                raise AssetCommandError("PIE 世界未运行，请先启动 Play-In-Editor")
+            return pie_world, "pie"
+
+        if requested_world_type == "auto":
+            pie_world = self._get_pie_world()
+            if pie_world:
+                return pie_world, "pie"
+
+            editor_world = self._get_editor_world()
+            if editor_world:
+                return editor_world, "editor"
+            raise AssetCommandError("自动模式下无法解析到可用世界")
+
+        raise AssetCommandError(
+            f"无效的 world_type: {requested_world_type}，可选值为 auto、editor、pie"
+        )
+
+    @staticmethod
+    def _get_requested_world_type(params: Dict[str, Any]) -> str:
+        if "use_pie_world" in params:
+            return "pie" if bool(params.get("use_pie_world", False)) else "editor"
+        requested_world_type = str(params.get("world_type", "auto")).strip().casefold()
+        return requested_world_type or "auto"
+
+    @staticmethod
+    def _get_editor_world() -> Optional[unreal.World]:
+        editor_subsystem = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+        if not editor_subsystem:
+            return None
+        return editor_subsystem.get_editor_world()
+
+    @staticmethod
+    def _get_pie_world() -> Optional[unreal.World]:
+        if not hasattr(unreal, "EditorLevelLibrary"):
+            return None
+        try:
+            pie_worlds = list(unreal.EditorLevelLibrary.get_pie_worlds(False) or [])
+        except Exception:
+            pie_worlds = []
+        return pie_worlds[0] if pie_worlds else None
+
+    @staticmethod
+    def _collect_mesh_components(actor: unreal.Actor) -> List[unreal.MeshComponent]:
+        mesh_components = list(actor.get_components_by_class(unreal.MeshComponent) or [])
+        mesh_components.sort(key=lambda item: item.get_name())
+        return mesh_components
+
+    def _resolve_mesh_component(
+        self,
+        actor: unreal.Actor,
+        component_name: str,
+    ) -> unreal.MeshComponent:
+        mesh_components = self._collect_mesh_components(actor)
+        normalized_component_name = component_name.strip()
+        if not normalized_component_name:
+            if len(mesh_components) == 1:
+                return mesh_components[0]
+            if not mesh_components:
+                raise AssetCommandError("目标 Actor 上没有 MeshComponent")
+            component_names = ", ".join(component.get_name() for component in mesh_components)
+            raise AssetCommandError(
+                f"目标 Actor 上存在多个 MeshComponent，请指定 component_name: {component_names}"
+            )
+
+        for mesh_component in mesh_components:
+            if mesh_component.get_name() == normalized_component_name:
+                return mesh_component
+        raise AssetCommandError(f"未找到 MeshComponent: {normalized_component_name}")
+
+    def _resolve_material_slot_index(
+        self,
+        mesh_component: unreal.MeshComponent,
+        params: Dict[str, Any],
+        require_explicit_slot: bool,
+    ) -> Tuple[int, str]:
+        slot_index = int(params.get("slot_index", 0))
+        has_slot_index = "slot_index" in params
+        slot_name = str(params.get("slot_name", "")).strip()
+        has_slot_name = bool(slot_name)
+
+        if require_explicit_slot and not has_slot_index and not has_slot_name:
+            raise AssetCommandError("缺少 'slot_index' 或 'slot_name' 参数")
+
+        slot_names = [str(name) for name in (mesh_component.get_material_slot_names() or [])]
+        if has_slot_name:
+            resolved_index = -1
+            for index, existing_slot_name in enumerate(slot_names):
+                if existing_slot_name.casefold() == slot_name.casefold():
+                    resolved_index = index
+                    slot_name = existing_slot_name
+                    break
+            if resolved_index < 0:
+                available_slot_names = ", ".join(slot_names) if slot_names else "<空>"
+                raise AssetCommandError(
+                    f"组件 {mesh_component.get_name()} 上未找到材质槽 {slot_name}，可用槽位: {available_slot_names}"
+                )
+            slot_index = resolved_index
+
+        if slot_index < 0:
+            raise AssetCommandError("'slot_index' 不能小于 0")
+
+        if 0 <= slot_index < len(slot_names):
+            slot_name = slot_names[slot_index]
+
+        material_count = int(mesh_component.get_num_materials())
+        if material_count <= slot_index and not (0 <= slot_index < len(slot_names)):
+            raise AssetCommandError(
+                f"组件 {mesh_component.get_name()} 没有可用的材质槽 {slot_index}"
+            )
+
+        return slot_index, slot_name
+
+    @staticmethod
+    def _mark_material_assignment_dirty(
+        actor: unreal.Actor,
+        mesh_component: unreal.MeshComponent,
+        resolved_world_type: str,
+    ) -> None:
+        if resolved_world_type != "editor":
+            return
+        actor.modify()
+        mesh_component.modify()
+
+    @staticmethod
+    def _create_material_slot_result(
+        mesh_component: unreal.MeshComponent,
+        slot_index: int,
+        slot_name: str,
+        previous_material: Optional[unreal.MaterialInterface],
+        current_material: Optional[unreal.MaterialInterface],
+    ) -> Dict[str, Any]:
+        return {
+            "component_name": mesh_component.get_name(),
+            "component_path": mesh_component.get_path_name(),
+            "slot_index": slot_index,
+            "slot_name": slot_name,
+            "previous_material_name": previous_material.get_name() if previous_material else "",
+            "previous_material_path": previous_material.get_path_name() if previous_material else "",
+            "material_name": current_material.get_name() if current_material else "",
+            "material_path": current_material.get_path_name() if current_material else "",
+        }
+
     def _identity_or_fallback(self, asset_reference: str) -> Dict[str, Any]:
         try:
             return self._resolver.resolve_reference(asset_reference).to_identity()
@@ -1162,6 +1478,9 @@ class AssetCommandDispatcher:
             "set_material_instance_scalar_parameter": self._material_executor.set_material_instance_scalar_parameter,
             "set_material_instance_vector_parameter": self._material_executor.set_material_instance_vector_parameter,
             "set_material_instance_texture_parameter": self._material_executor.set_material_instance_texture_parameter,
+            "assign_material_to_actor": self._material_executor.assign_material_to_actor,
+            "assign_material_to_component": self._material_executor.assign_material_to_component,
+            "replace_material_slot": self._material_executor.replace_material_slot,
         }
         handler = command_handlers.get(command_name)
         if handler is None:

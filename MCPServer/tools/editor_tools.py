@@ -164,7 +164,102 @@ def register_editor_tools(mcp: FastMCP):
                 "actors": [],
                 "actor_count": 0,
             }
-    
+
+    @mcp.tool()
+    def find_actors(
+        ctx: Context,
+        world_type: str = "auto",
+        name_pattern: str = "",
+        class_name: str = "",
+        folder_path: str = "",
+        path_contains: str = "",
+        tag: str = "",
+        tags: List[str] = [],
+        data_layer: str = "",
+        sort_by: str = "name",
+        sort_desc: bool = False,
+        include_components: bool = False,
+        detailed_components: bool = True,
+        include_data_layers: bool = False
+    ) -> Dict[str, Any]:
+        """Find actors using class/tag/folder/path/data-layer filters.
+
+        Args:
+            world_type: Target world to query: auto/editor/pie
+            name_pattern: Optional substring matched against actor name or label
+            class_name: Optional exact actor class name filter
+            folder_path: Optional exact Scene Outliner folder path filter
+            path_contains: Optional substring matched against actor path
+            tag: Optional single tag filter
+            tags: Optional tag list; actor must contain all tags
+            data_layer: Optional DataLayer name/path substring filter
+            sort_by: Sort field: name/label/path/class/folder_path
+            sort_desc: Whether to sort descending
+            include_components: Whether to include each actor's component list
+            detailed_components: Whether to include detailed component fields
+            include_data_layers: Whether to include actor data layer payloads
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {
+                    "success": False,
+                    "message": "Failed to connect to Unreal Engine",
+                    "actors": [],
+                    "actor_count": 0,
+                }
+
+            params: Dict[str, Any] = {
+                "world_type": world_type,
+                "sort_by": sort_by,
+                "sort_desc": sort_desc,
+                "include_components": include_components,
+                "detailed_components": detailed_components,
+                "include_data_layers": include_data_layers,
+            }
+            if name_pattern:
+                params["name_pattern"] = name_pattern
+            if class_name:
+                params["class_name"] = class_name
+            if folder_path:
+                params["folder_path"] = folder_path
+            if path_contains:
+                params["path_contains"] = path_contains
+            if tag:
+                params["tag"] = tag
+            if tags:
+                params["tags"] = tags
+            if data_layer:
+                params["data_layer"] = data_layer
+
+            response = unreal.send_command("find_actors", params)
+            if not response:
+                return {
+                    "success": False,
+                    "message": "No response from Unreal Engine",
+                    "actors": [],
+                    "actor_count": 0,
+                }
+
+            normalized_result = _build_actor_list_result(
+                response,
+                "Unexpected response format while finding actors",
+            )
+            result_payload = response.get("result", response)
+            if "filters" in result_payload:
+                normalized_result["filters"] = result_payload["filters"]
+            return normalized_result
+        except Exception as e:
+            logger.error(f"Error finding actors: {e}")
+            return {
+                "success": False,
+                "message": str(e),
+                "actors": [],
+                "actor_count": 0,
+            }
+
     @mcp.tool()
     def spawn_actor(
         ctx: Context,
@@ -232,7 +327,127 @@ def register_editor_tools(mcp: FastMCP):
             error_msg = f"Error creating actor: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
-    
+
+    @mcp.tool()
+    def spawn_actor_from_class(
+        ctx: Context,
+        actor_name: str,
+        class_path: str,
+        location: List[float] = [0.0, 0.0, 0.0],
+        rotation: List[float] = [0.0, 0.0, 0.0],
+        scale: List[float] = [1.0, 1.0, 1.0],
+        world_type: str = "editor"
+    ) -> Dict[str, Any]:
+        """Spawn an actor into the level from a native or Blueprint class path."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "actor_name": actor_name,
+                "class_path": class_path,
+                "world_type": world_type,
+            }
+            for field_name, field_value in {
+                "location": location,
+                "rotation": rotation,
+                "scale": scale,
+            }.items():
+                if not isinstance(field_value, list) or len(field_value) != 3:
+                    return {
+                        "success": False,
+                        "message": f"{field_name} must be [X, Y, Z]" if field_name != "rotation" else "rotation must be [Pitch, Yaw, Roll]",
+                    }
+                params[field_name] = [float(value) for value in field_value]
+
+            return unreal.send_command("spawn_actor_from_class", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def create_light(
+        ctx: Context,
+        actor_name: str,
+        light_type: str,
+        location: List[float] = [0.0, 0.0, 0.0],
+        rotation: List[float] = [0.0, 0.0, 0.0],
+        intensity: float = -1.0,
+        light_color: Optional[List[float]] = None,
+        attenuation_radius: float = -1.0,
+        source_radius: float = -1.0,
+        source_length: float = -1.0,
+        indirect_lighting_intensity: float = -1.0,
+        cast_shadows: Optional[bool] = None,
+        affects_world: Optional[bool] = None,
+        mobility: str = "",
+        temperature: float = -1.0,
+        use_temperature: Optional[bool] = None,
+        inner_cone_angle: float = -1.0,
+        outer_cone_angle: float = -1.0,
+        cast_volumetric_shadow: Optional[bool] = None,
+        volumetric_scattering_intensity: float = -1.0,
+        world_type: str = "editor"
+    ) -> Dict[str, Any]:
+        """Create a light actor and optionally apply common light properties."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            if not isinstance(location, list) or len(location) != 3:
+                return {"success": False, "message": "location must be [X, Y, Z]"}
+            if not isinstance(rotation, list) or len(rotation) != 3:
+                return {"success": False, "message": "rotation must be [Pitch, Yaw, Roll]"}
+            if light_color is not None and len(light_color) not in (3, 4):
+                return {"success": False, "message": "light_color must be [R, G, B] or [R, G, B, A]"}
+
+            params: Dict[str, Any] = {
+                "actor_name": actor_name,
+                "light_type": light_type,
+                "location": [float(value) for value in location],
+                "rotation": [float(value) for value in rotation],
+                "world_type": world_type,
+            }
+            if intensity >= 0.0:
+                params["intensity"] = float(intensity)
+            if light_color is not None:
+                params["light_color"] = [float(value) for value in light_color]
+            if attenuation_radius >= 0.0:
+                params["attenuation_radius"] = float(attenuation_radius)
+            if source_radius >= 0.0:
+                params["source_radius"] = float(source_radius)
+            if source_length >= 0.0:
+                params["source_length"] = float(source_length)
+            if indirect_lighting_intensity >= 0.0:
+                params["indirect_lighting_intensity"] = float(indirect_lighting_intensity)
+            if cast_shadows is not None:
+                params["cast_shadows"] = bool(cast_shadows)
+            if affects_world is not None:
+                params["affects_world"] = bool(affects_world)
+            if mobility:
+                params["mobility"] = mobility
+            if temperature >= 0.0:
+                params["temperature"] = float(temperature)
+            if use_temperature is not None:
+                params["use_temperature"] = bool(use_temperature)
+            if inner_cone_angle >= 0.0:
+                params["inner_cone_angle"] = float(inner_cone_angle)
+            if outer_cone_angle >= 0.0:
+                params["outer_cone_angle"] = float(outer_cone_angle)
+            if cast_volumetric_shadow is not None:
+                params["cast_volumetric_shadow"] = bool(cast_volumetric_shadow)
+            if volumetric_scattering_intensity >= 0.0:
+                params["volumetric_scattering_intensity"] = float(volumetric_scattering_intensity)
+
+            return unreal.send_command("create_light", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
     @mcp.tool()
     def delete_actor(ctx: Context, name: str) -> Dict[str, Any]:
         """Delete an actor by name."""
@@ -284,7 +499,136 @@ def register_editor_tools(mcp: FastMCP):
         except Exception as e:
             logger.error(f"Error setting transform: {e}")
             return {}
-    
+
+    @mcp.tool()
+    def set_light_properties(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        world_type: str = "auto",
+        intensity: Optional[float] = None,
+        light_color: Optional[List[float]] = None,
+        attenuation_radius: Optional[float] = None,
+        source_radius: Optional[float] = None,
+        source_length: Optional[float] = None,
+        indirect_lighting_intensity: Optional[float] = None,
+        cast_shadows: Optional[bool] = None,
+        affects_world: Optional[bool] = None,
+        mobility: str = "",
+        temperature: Optional[float] = None,
+        use_temperature: Optional[bool] = None,
+        inner_cone_angle: Optional[float] = None,
+        outer_cone_angle: Optional[float] = None,
+        cast_volumetric_shadow: Optional[bool] = None,
+        volumetric_scattering_intensity: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """Update common properties on an existing light actor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            if not name and not actor_path:
+                return {"success": False, "message": "name or actor_path is required"}
+            if light_color is not None and len(light_color) not in (3, 4):
+                return {"success": False, "message": "light_color must be [R, G, B] or [R, G, B, A]"}
+
+            params: Dict[str, Any] = {"world_type": world_type}
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+            if intensity is not None:
+                params["intensity"] = float(intensity)
+            if light_color is not None:
+                params["light_color"] = [float(value) for value in light_color]
+            if attenuation_radius is not None:
+                params["attenuation_radius"] = float(attenuation_radius)
+            if source_radius is not None:
+                params["source_radius"] = float(source_radius)
+            if source_length is not None:
+                params["source_length"] = float(source_length)
+            if indirect_lighting_intensity is not None:
+                params["indirect_lighting_intensity"] = float(indirect_lighting_intensity)
+            if cast_shadows is not None:
+                params["cast_shadows"] = bool(cast_shadows)
+            if affects_world is not None:
+                params["affects_world"] = bool(affects_world)
+            if mobility:
+                params["mobility"] = mobility
+            if temperature is not None:
+                params["temperature"] = float(temperature)
+            if use_temperature is not None:
+                params["use_temperature"] = bool(use_temperature)
+            if inner_cone_angle is not None:
+                params["inner_cone_angle"] = float(inner_cone_angle)
+            if outer_cone_angle is not None:
+                params["outer_cone_angle"] = float(outer_cone_angle)
+            if cast_volumetric_shadow is not None:
+                params["cast_volumetric_shadow"] = bool(cast_volumetric_shadow)
+            if volumetric_scattering_intensity is not None:
+                params["volumetric_scattering_intensity"] = float(volumetric_scattering_intensity)
+
+            if len(params) <= 2:
+                return {"success": False, "message": "At least one light property is required"}
+
+            return unreal.send_command("set_light_properties", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def set_post_process_settings(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        world_type: str = "auto",
+        blend_radius: Optional[float] = None,
+        blend_weight: Optional[float] = None,
+        priority: Optional[float] = None,
+        enabled: Optional[bool] = None,
+        unbound: Optional[bool] = None,
+        settings: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Set common properties and PostProcessSettings fields on a PostProcessVolume."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            if not name and not actor_path:
+                return {"success": False, "message": "name or actor_path is required"}
+            if settings is not None and not isinstance(settings, dict):
+                return {"success": False, "message": "settings must be an object"}
+
+            params: Dict[str, Any] = {"world_type": world_type}
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+            if blend_radius is not None:
+                params["blend_radius"] = float(blend_radius)
+            if blend_weight is not None:
+                params["blend_weight"] = float(blend_weight)
+            if priority is not None:
+                params["priority"] = float(priority)
+            if enabled is not None:
+                params["enabled"] = bool(enabled)
+            if unbound is not None:
+                params["unbound"] = bool(unbound)
+            if settings:
+                params["settings"] = settings
+
+            if len(params) <= 2:
+                return {"success": False, "message": "At least one volume property or settings field is required"}
+
+            return unreal.send_command("set_post_process_settings", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
     @mcp.tool()
     def get_actor_properties(
         ctx: Context,
@@ -408,6 +752,73 @@ def register_editor_tools(mcp: FastMCP):
 
         except Exception as e:
             logger.error(f"Error getting scene components: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_world_settings(
+        ctx: Context,
+        world_type: str = "editor",
+        property_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Get reflected properties from the current WorldSettings actor.
+
+        Args:
+            world_type: Target world to query. Currently only editor is supported
+            property_names: Optional list of WorldSettings property names to read
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {"world_type": world_type}
+            if property_names is not None:
+                params["property_names"] = property_names
+
+            response = unreal.send_command("get_world_settings", params)
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error getting world settings: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def set_world_settings(
+        ctx: Context,
+        settings: Dict[str, Any],
+        world_type: str = "editor"
+    ) -> Dict[str, Any]:
+        """Set reflected properties on the current WorldSettings actor.
+
+        Args:
+            settings: Mapping from WorldSettings property name to desired value
+            world_type: Target world to update. Currently only editor is supported
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            if not isinstance(settings, dict) or len(settings) == 0:
+                return {"success": False, "message": "settings must be a non-empty object"}
+
+            response = unreal.send_command(
+                "set_world_settings",
+                {
+                    "world_type": world_type,
+                    "settings": settings,
+                },
+            )
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error setting world settings: {e}")
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
@@ -723,6 +1134,134 @@ def register_editor_tools(mcp: FastMCP):
             return {"success": False, "message": error_msg}
 
     @mcp.tool()
+    def set_actor_tags(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        tags: List[str] = [],
+    ) -> Dict[str, Any]:
+        """Set an actor's tags in the editor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "tags": tags,
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+
+            response = unreal.send_command("set_actor_tags", params)
+            return response or {}
+
+        except Exception as e:
+            error_msg = f"Error setting actor tags: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_actor_folder_path(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        folder_path: str = "",
+    ) -> Dict[str, Any]:
+        """Set an actor's folder path in the editor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "folder_path": folder_path,
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+
+            response = unreal.send_command("set_actor_folder_path", params)
+            return response or {}
+
+        except Exception as e:
+            error_msg = f"Error setting actor folder path: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_actor_visibility(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        visible: bool = True,
+    ) -> Dict[str, Any]:
+        """Set an actor's visibility state in the editor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "visible": visible,
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+
+            response = unreal.send_command("set_actor_visibility", params)
+            return response or {}
+
+        except Exception as e:
+            error_msg = f"Error setting actor visibility: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_actor_mobility(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        mobility: str = "",
+    ) -> Dict[str, Any]:
+        """Set an actor root component's mobility in the editor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "mobility": mobility,
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+
+            response = unreal.send_command("set_actor_mobility", params)
+            return response or {}
+
+        except Exception as e:
+            error_msg = f"Error setting actor mobility: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
     def focus_viewport(
         ctx: Context,
         target: str = None,
@@ -880,6 +1419,64 @@ def register_editor_tools(mcp: FastMCP):
 
         except Exception as e:
             logger.error(f"Error capturing viewport sequence: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def capture_scene_to_render_target(
+        ctx: Context,
+        render_target_asset_path: str,
+        name: str = "",
+        actor_path: str = "",
+        world_type: str = "editor",
+        location: Optional[List[float]] = None,
+        rotation: Optional[List[float]] = None,
+        capture_source: str = "",
+        fov_angle: Optional[float] = None,
+        post_process_blend_weight: Optional[float] = None,
+        capture_every_frame: Optional[bool] = None,
+        capture_on_movement: Optional[bool] = None,
+        primitive_render_mode: str = ""
+    ) -> Dict[str, Any]:
+        """Capture the scene into a TextureRenderTarget2D using an existing or temporary SceneCapture2D actor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "render_target_asset_path": render_target_asset_path,
+                "world_type": world_type,
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+            if location is not None:
+                if not isinstance(location, list) or len(location) != 3:
+                    return {"success": False, "message": "location must be [X, Y, Z]"}
+                params["location"] = [float(value) for value in location]
+            if rotation is not None:
+                if not isinstance(rotation, list) or len(rotation) != 3:
+                    return {"success": False, "message": "rotation must be [Pitch, Yaw, Roll]"}
+                params["rotation"] = [float(value) for value in rotation]
+            if capture_source:
+                params["capture_source"] = capture_source
+            if fov_angle is not None:
+                params["fov_angle"] = float(fov_angle)
+            if post_process_blend_weight is not None:
+                params["post_process_blend_weight"] = float(post_process_blend_weight)
+            if capture_every_frame is not None:
+                params["capture_every_frame"] = bool(capture_every_frame)
+            if capture_on_movement is not None:
+                params["capture_on_movement"] = bool(capture_on_movement)
+            if primitive_render_mode:
+                params["primitive_render_mode"] = primitive_render_mode
+
+            return unreal.send_command("capture_scene_to_render_target", params) or {}
+        except Exception as e:
+            logger.error(f"Error capturing scene to render target: {e}")
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
@@ -1056,8 +1653,10 @@ def register_editor_tools(mcp: FastMCP):
     @mcp.tool()
     def attach_actor(
         ctx: Context,
-        name: str,
-        parent_name: str,
+        name: str = "",
+        parent_name: str = "",
+        actor_path: str = "",
+        parent_actor_path: str = "",
         socket_name: str = "",
         keep_world_transform: bool = True,
         world_type: str = "auto"
@@ -1070,20 +1669,29 @@ def register_editor_tools(mcp: FastMCP):
             if not unreal:
                 return {"success": False, "message": "Failed to connect to Unreal Engine"}
 
-            return unreal.send_command("attach_actor", {
-                "name": name,
-                "parent_name": parent_name,
+            params: Dict[str, Any] = {
                 "socket_name": socket_name,
                 "keep_world_transform": keep_world_transform,
                 "world_type": world_type
-            }) or {}
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+            if parent_name:
+                params["parent_name"] = parent_name
+            if parent_actor_path:
+                params["parent_actor_path"] = parent_actor_path
+
+            return unreal.send_command("attach_actor", params) or {}
         except Exception as e:
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
     def detach_actor(
         ctx: Context,
-        name: str,
+        name: str = "",
+        actor_path: str = "",
         keep_world_transform: bool = True,
         world_type: str = "auto"
     ) -> Dict[str, Any]:
@@ -1095,11 +1703,16 @@ def register_editor_tools(mcp: FastMCP):
             if not unreal:
                 return {"success": False, "message": "Failed to connect to Unreal Engine"}
 
-            return unreal.send_command("detach_actor", {
-                "name": name,
+            params: Dict[str, Any] = {
                 "keep_world_transform": keep_world_transform,
                 "world_type": world_type
-            }) or {}
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+
+            return unreal.send_command("detach_actor", params) or {}
         except Exception as e:
             return {"success": False, "message": str(e)}
 

@@ -126,11 +126,25 @@ private:
     TSharedPtr<FJsonObject> HandleFindActorsByName(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 按多种过滤条件查找 Actor。
+     * @param [in] Params 查询参数（支持 class/tag/folder/path/data_layer 等条件）。
+     * @return TSharedPtr<FJsonObject> 匹配结果。
+     */
+    TSharedPtr<FJsonObject> HandleFindActors(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 在编辑器世界中生成 Actor。
      * @param [in] Params 生成参数（类型、名称、变换等）。
      * @return TSharedPtr<FJsonObject> 生成结果。
      */
     TSharedPtr<FJsonObject> HandleSpawnActor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 按类路径在关卡中生成 Actor。
+     * @param [in] Params 生成参数（包含 class_path、actor_name、变换等）。
+     * @return TSharedPtr<FJsonObject> 生成结果。
+     */
+    TSharedPtr<FJsonObject> HandleSpawnActorFromClass(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 删除指定 Actor。
@@ -168,11 +182,53 @@ private:
     TSharedPtr<FJsonObject> HandleGetSceneComponents(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 读取当前 World 的 WorldSettings 常用属性。
+     * @param [in] Params 查询参数（支持 world_type、property_names）。
+     * @return TSharedPtr<FJsonObject> WorldSettings 属性结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetWorldSettings(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 写入当前 World 的 WorldSettings 属性。
+     * @param [in] Params 更新参数（支持 world_type、settings）。
+     * @return TSharedPtr<FJsonObject> WorldSettings 更新结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetWorldSettings(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 设置 Actor 指定属性值。
      * @param [in] Params 属性设置参数。
      * @return TSharedPtr<FJsonObject> 设置结果。
      */
     TSharedPtr<FJsonObject> HandleSetActorProperty(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 设置 Actor 的标签列表。
+     * @param [in] Params 标签设置参数。
+     * @return TSharedPtr<FJsonObject> 设置结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetActorTags(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 设置 Actor 的文件夹路径。
+     * @param [in] Params 文件夹路径设置参数。
+     * @return TSharedPtr<FJsonObject> 设置结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetActorFolderPath(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 设置 Actor 的可见性状态。
+     * @param [in] Params 可见性设置参数。
+     * @return TSharedPtr<FJsonObject> 设置结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetActorVisibility(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 设置 Actor 根组件的 Mobility。
+     * @param [in] Params Mobility 设置参数。
+     * @return TSharedPtr<FJsonObject> 设置结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetActorMobility(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 通过 Blueprint 生成 Actor。
@@ -208,6 +264,34 @@ private:
      * @return TSharedPtr<FJsonObject> 聚合后的选中结果。
      */
     TSharedPtr<FJsonObject> HandleGetEditorSelection(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 创建一个灯光 Actor，并可在创建时写入常用灯光属性。
+     * @param [in] Params 创建参数（包含 actor_name、light_type，可选位置、旋转和灯光属性）。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateLight(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 修改已有灯光 Actor 的常用灯光属性。
+     * @param [in] Params 更新参数（支持 name/actor_path/world_type 与一组可选灯光属性）。
+     * @return TSharedPtr<FJsonObject> 更新结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetLightProperties(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 将场景捕捉到指定 RenderTarget。
+     * @param [in] Params 捕捉参数（包含 render_target_asset_path，可选 SceneCapture2D 与捕捉配置）。
+     * @return TSharedPtr<FJsonObject> 捕捉结果。
+     */
+    TSharedPtr<FJsonObject> HandleCaptureSceneToRenderTarget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 修改 PostProcessVolume 的常用参数与 PostProcessSettings。
+     * @param [in] Params 更新参数（支持 name/actor_path/world_type、Volume 属性与 settings 字典）。
+     * @return TSharedPtr<FJsonObject> 更新结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetPostProcessSettings(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 将子 Actor 挂接到父 Actor。

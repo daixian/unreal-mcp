@@ -3023,169 +3023,29 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSetMaterialInstanceTextur
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleAssignMaterialToActor(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterialInterface* Material = nullptr;
-    FAssetData MaterialAssetData;
-    FString ErrorMessage;
-    if (!UnrealMCPAssetResolveMaterialAssignmentFromParams(Params, Material, MaterialAssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UWorld* ResolvedWorld = nullptr;
-    FString ResolvedWorldType;
-    AActor* TargetActor = UnrealMCPAssetResolveActorByParams(Params, ResolvedWorld, ResolvedWorldType, ErrorMessage);
-    if (!TargetActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TArray<UMeshComponent*> MeshComponents;
-    UnrealMCPAssetCollectMeshComponents(TargetActor, MeshComponents);
-    if (MeshComponents.Num() == 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("目标 Actor 上没有 MeshComponent"));
-    }
-
-    TArray<TSharedPtr<FJsonValue>> UpdatedComponents;
-    TArray<TSharedPtr<FJsonValue>> SkippedComponents;
-    UpdatedComponents.Reserve(MeshComponents.Num());
-    SkippedComponents.Reserve(MeshComponents.Num());
-
-    for (UMeshComponent* MeshComponent : MeshComponents)
-    {
-        FString SlotName;
-        int32 SlotIndex = 0;
-        FString SlotErrorMessage;
-        if (!UnrealMCPAssetResolveMaterialSlotIndex(MeshComponent, Params, SlotIndex, SlotName, false, SlotErrorMessage))
-        {
-            TSharedPtr<FJsonObject> SkippedObject = MakeShared<FJsonObject>();
-            SkippedObject->SetStringField(TEXT("component_name"), MeshComponent ? MeshComponent->GetName() : FString());
-            SkippedObject->SetStringField(TEXT("component_path"), MeshComponent ? MeshComponent->GetPathName() : FString());
-            SkippedObject->SetStringField(TEXT("reason"), SlotErrorMessage);
-            SkippedComponents.Add(MakeShared<FJsonValueObject>(SkippedObject));
-            continue;
-        }
-
-        UMaterialInterface* PreviousMaterial = MeshComponent->GetMaterial(SlotIndex);
-        UnrealMCPAssetMarkMaterialAssignmentDirty(TargetActor, MeshComponent, ResolvedWorldType);
-        MeshComponent->SetMaterial(SlotIndex, Material);
-        UpdatedComponents.Add(MakeShared<FJsonValueObject>(
-            UnrealMCPAssetCreateMaterialSlotResult(MeshComponent, SlotIndex, SlotName, PreviousMaterial, Material)));
-    }
-
-    if (UpdatedComponents.Num() == 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("没有任何组件成功应用材质，请检查材质槽参数"));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("actor_name"), TargetActor->GetName());
-    Result->SetStringField(TEXT("actor_path"), TargetActor->GetPathName());
-    Result->SetStringField(TEXT("world_type"), ResolvedWorldType);
-    Result->SetStringField(TEXT("material_name"), Material->GetName());
-    Result->SetStringField(TEXT("material_path"), MaterialAssetData.GetObjectPathString());
-    Result->SetArrayField(TEXT("updated_components"), UpdatedComponents);
-    Result->SetArrayField(TEXT("skipped_components"), SkippedComponents);
-    Result->SetNumberField(TEXT("updated_component_count"), UpdatedComponents.Num());
-    Result->SetNumberField(TEXT("skipped_component_count"), SkippedComponents.Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("assign_material_to_actor"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleAssignMaterialToComponent(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterialInterface* Material = nullptr;
-    FAssetData MaterialAssetData;
-    FString ErrorMessage;
-    if (!UnrealMCPAssetResolveMaterialAssignmentFromParams(Params, Material, MaterialAssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UWorld* ResolvedWorld = nullptr;
-    FString ResolvedWorldType;
-    AActor* TargetActor = UnrealMCPAssetResolveActorByParams(Params, ResolvedWorld, ResolvedWorldType, ErrorMessage);
-    if (!TargetActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString ComponentName;
-    if (!Params->TryGetStringField(TEXT("component_name"), ComponentName) || ComponentName.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'component_name' 参数"));
-    }
-
-    UMeshComponent* MeshComponent = UnrealMCPAssetResolveMeshComponent(TargetActor, ComponentName, ErrorMessage);
-    if (!MeshComponent)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString SlotName;
-    int32 SlotIndex = 0;
-    if (!UnrealMCPAssetResolveMaterialSlotIndex(MeshComponent, Params, SlotIndex, SlotName, false, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UMaterialInterface* PreviousMaterial = MeshComponent->GetMaterial(SlotIndex);
-    UnrealMCPAssetMarkMaterialAssignmentDirty(TargetActor, MeshComponent, ResolvedWorldType);
-    MeshComponent->SetMaterial(SlotIndex, Material);
-
-    TSharedPtr<FJsonObject> Result = UnrealMCPAssetCreateMaterialSlotResult(MeshComponent, SlotIndex, SlotName, PreviousMaterial, Material);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("actor_name"), TargetActor->GetName());
-    Result->SetStringField(TEXT("actor_path"), TargetActor->GetPathName());
-    Result->SetStringField(TEXT("world_type"), ResolvedWorldType);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("assign_material_to_component"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleReplaceMaterialSlot(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterialInterface* Material = nullptr;
-    FAssetData MaterialAssetData;
-    FString ErrorMessage;
-    if (!UnrealMCPAssetResolveMaterialAssignmentFromParams(Params, Material, MaterialAssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UWorld* ResolvedWorld = nullptr;
-    FString ResolvedWorldType;
-    AActor* TargetActor = UnrealMCPAssetResolveActorByParams(Params, ResolvedWorld, ResolvedWorldType, ErrorMessage);
-    if (!TargetActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString ComponentName;
-    Params->TryGetStringField(TEXT("component_name"), ComponentName);
-
-    UMeshComponent* MeshComponent = UnrealMCPAssetResolveMeshComponent(TargetActor, ComponentName, ErrorMessage);
-    if (!MeshComponent)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString SlotName;
-    int32 SlotIndex = 0;
-    if (!UnrealMCPAssetResolveMaterialSlotIndex(MeshComponent, Params, SlotIndex, SlotName, true, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UMaterialInterface* PreviousMaterial = MeshComponent->GetMaterial(SlotIndex);
-    UnrealMCPAssetMarkMaterialAssignmentDirty(TargetActor, MeshComponent, ResolvedWorldType);
-    MeshComponent->SetMaterial(SlotIndex, Material);
-
-    TSharedPtr<FJsonObject> Result = UnrealMCPAssetCreateMaterialSlotResult(MeshComponent, SlotIndex, SlotName, PreviousMaterial, Material);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("actor_name"), TargetActor->GetName());
-    Result->SetStringField(TEXT("actor_path"), TargetActor->GetPathName());
-    Result->SetStringField(TEXT("world_type"), ResolvedWorldType);
-    Result->SetStringField(TEXT("requested_material_path"), MaterialAssetData.GetObjectPathString());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("replace_material_slot"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleAddMaterialExpression(const TSharedPtr<FJsonObject>& Params)

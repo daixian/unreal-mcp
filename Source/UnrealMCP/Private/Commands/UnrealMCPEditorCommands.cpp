@@ -1574,6 +1574,10 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     {
         return HandleFindActorsByName(Params);
     }
+    else if (CommandType == TEXT("find_actors"))
+    {
+        return HandleFindActors(Params);
+    }
     else if (CommandType == TEXT("spawn_actor") || CommandType == TEXT("create_actor"))
     {
         if (CommandType == TEXT("create_actor"))
@@ -1581,6 +1585,10 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
             UE_LOG(LogTemp, Warning, TEXT("'create_actor' command is deprecated and will be removed in a future version. Please use 'spawn_actor' instead."));
         }
         return HandleSpawnActor(Params);
+    }
+    else if (CommandType == TEXT("spawn_actor_from_class"))
+    {
+        return HandleSpawnActorFromClass(Params);
     }
     else if (CommandType == TEXT("delete_actor"))
     {
@@ -1602,9 +1610,33 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     {
         return HandleGetSceneComponents(Params);
     }
+    else if (CommandType == TEXT("get_world_settings"))
+    {
+        return HandleGetWorldSettings(Params);
+    }
+    else if (CommandType == TEXT("set_world_settings"))
+    {
+        return HandleSetWorldSettings(Params);
+    }
     else if (CommandType == TEXT("set_actor_property"))
     {
         return HandleSetActorProperty(Params);
+    }
+    else if (CommandType == TEXT("set_actor_tags"))
+    {
+        return HandleSetActorTags(Params);
+    }
+    else if (CommandType == TEXT("set_actor_folder_path"))
+    {
+        return HandleSetActorFolderPath(Params);
+    }
+    else if (CommandType == TEXT("set_actor_visibility"))
+    {
+        return HandleSetActorVisibility(Params);
+    }
+    else if (CommandType == TEXT("set_actor_mobility"))
+    {
+        return HandleSetActorMobility(Params);
     }
     else if (CommandType == TEXT("duplicate_actor"))
     {
@@ -1621,6 +1653,22 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     else if (CommandType == TEXT("get_editor_selection"))
     {
         return HandleGetEditorSelection(Params);
+    }
+    else if (CommandType == TEXT("create_light"))
+    {
+        return HandleCreateLight(Params);
+    }
+    else if (CommandType == TEXT("set_light_properties"))
+    {
+        return HandleSetLightProperties(Params);
+    }
+    else if (CommandType == TEXT("capture_scene_to_render_target"))
+    {
+        return HandleCaptureSceneToRenderTarget(Params);
+    }
+    else if (CommandType == TEXT("set_post_process_settings"))
+    {
+        return HandleSetPostProcessSettings(Params);
     }
     else if (CommandType == TEXT("attach_actor"))
     {
@@ -1743,23 +1791,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDuplicateAsset(const TSh
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleLoadLevel(const TSharedPtr<FJsonObject>& Params)
 {
-    FString LevelPath;
-    if (!Params->TryGetStringField(TEXT("level_path"), LevelPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'level_path' parameter"));
-    }
-
-    const bool bOk = UnrealMCPEditorCommandsPrivate::LoadLevelCompat(LevelPath);
-    if (!bOk)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Failed to load level: %s"), *LevelPath));
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetStringField(TEXT("level_path"), LevelPath);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("load_level"),
+        Params);
 }
 
 /**
@@ -1769,19 +1805,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleLoadLevel(const TSharedP
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSaveCurrentLevel(const TSharedPtr<FJsonObject>& Params)
 {
-    const bool bOk = UnrealMCPEditorCommandsPrivate::SaveCurrentLevelCompat();
-    if (!bOk)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to save current level"));
-    }
-
-    UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
-    const FString CurrentLevel = World ? World->GetOutermost()->GetName() : TEXT("");
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetStringField(TEXT("level_path"), CurrentLevel);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("save_current_level"),
+        Params);
 }
 
 /**
@@ -2198,36 +2226,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetLiveCodingState(const
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorsInLevel(const TSharedPtr<FJsonObject>& Params)
 {
-    bool bIncludeComponents = false;
-    bool bDetailedComponents = true;
-    Params->TryGetBoolField(TEXT("include_components"), bIncludeComponents);
-    Params->TryGetBoolField(TEXT("detailed_components"), bDetailedComponents);
-
-    FString ErrorMessage;
-    FString ResolvedWorldType;
-    UWorld* World = UnrealMCPEditorCommandsPrivate::ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
-    if (!World)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(World, AActor::StaticClass(), AllActors);
-    
-    TArray<TSharedPtr<FJsonValue>> ActorArray;
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor)
-        {
-            ActorArray.Add(FUnrealMCPCommonUtils::ActorToJson(Actor, bIncludeComponents, bDetailedComponents));
-        }
-    }
-    
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetArrayField(TEXT("actors"), ActorArray);
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, World, ResolvedWorldType);
-    
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_actors_in_level"),
+        Params);
 }
 
 /**
@@ -2237,42 +2240,25 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorsInLevel(const T
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleFindActorsByName(const TSharedPtr<FJsonObject>& Params)
 {
-    FString Pattern;
-    if (!Params->TryGetStringField(TEXT("pattern"), Pattern))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'pattern' parameter"));
-    }
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("find_actors_by_name"),
+        Params);
+}
 
-    bool bIncludeComponents = false;
-    bool bDetailedComponents = true;
-    Params->TryGetBoolField(TEXT("include_components"), bIncludeComponents);
-    Params->TryGetBoolField(TEXT("detailed_components"), bDetailedComponents);
-
-    FString ErrorMessage;
-    FString ResolvedWorldType;
-    UWorld* World = UnrealMCPEditorCommandsPrivate::ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
-    if (!World)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-    
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(World, AActor::StaticClass(), AllActors);
-    
-    TArray<TSharedPtr<FJsonValue>> MatchingActors;
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName().Contains(Pattern))
-        {
-            MatchingActors.Add(FUnrealMCPCommonUtils::ActorToJson(Actor, bIncludeComponents, bDetailedComponents));
-        }
-    }
-    
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetArrayField(TEXT("actors"), MatchingActors);
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, World, ResolvedWorldType);
-    
-    return ResultObj;
+/**
+ * @brief 按多种过滤条件查找 Actor。
+ * @param [in] Params 查询参数（支持 class/tag/folder/path/data_layer 等条件）。
+ * @return TSharedPtr<FJsonObject> 匹配 Actor 列表。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleFindActors(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("find_actors"),
+        Params);
 }
 
 /**
@@ -2282,117 +2268,25 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleFindActorsByName(const T
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnActor(const TSharedPtr<FJsonObject>& Params)
 {
-    // Get required parameters
-    FString ActorType;
-    if (!Params->TryGetStringField(TEXT("type"), ActorType))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'type' parameter"));
-    }
-    ActorType = ActorType.TrimStartAndEnd();
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("spawn_actor"),
+        Params);
+}
 
-    // Get actor name (required parameter)
-    FString ActorName;
-    if (!Params->TryGetStringField(TEXT("name"), ActorName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
-    }
-
-    // Get optional transform parameters
-    FVector Location(0.0f, 0.0f, 0.0f);
-    FRotator Rotation(0.0f, 0.0f, 0.0f);
-    FVector Scale(1.0f, 1.0f, 1.0f);
-
-    if (Params->HasField(TEXT("location")))
-    {
-        Location = FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("location"));
-    }
-    if (Params->HasField(TEXT("rotation")))
-    {
-        Rotation = FUnrealMCPCommonUtils::GetRotatorFromJson(Params, TEXT("rotation"));
-    }
-    if (Params->HasField(TEXT("scale")))
-    {
-        Scale = FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("scale"));
-    }
-
-    // Create the actor based on type
-    AActor* NewActor = nullptr;
-    UWorld* World = GEditor->GetEditorWorldContext().World();
-
-    if (!World)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to get editor world"));
-    }
-
-    // Check if an actor with this name already exists
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(World, AActor::StaticClass(), AllActors);
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName() == ActorName)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor with name '%s' already exists"), *ActorName));
-        }
-    }
-
-    FActorSpawnParameters SpawnParams;
-    SpawnParams.Name = *ActorName;
-
-    if (ActorType.Equals(TEXT("StaticMeshActor"), ESearchCase::IgnoreCase))
-    {
-        NewActor = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), Location, Rotation, SpawnParams);
-        if (NewActor && Params->HasField(TEXT("static_mesh")))
-        {
-            const FString MeshPath = Params->GetStringField(TEXT("static_mesh"));
-            UStaticMesh* MeshAsset = Cast<UStaticMesh>(UEditorAssetLibrary::LoadAsset(MeshPath));
-            if (MeshAsset)
-            {
-                AStaticMeshActor* MeshActor = Cast<AStaticMeshActor>(NewActor);
-                if (MeshActor && MeshActor->GetStaticMeshComponent())
-                {
-                    MeshActor->GetStaticMeshComponent()->SetStaticMesh(MeshAsset);
-                }
-            }
-            else
-            {
-                return FUnrealMCPCommonUtils::CreateErrorResponse(
-                    FString::Printf(TEXT("Failed to load static mesh asset: %s"), *MeshPath));
-            }
-        }
-    }
-    else if (ActorType.Equals(TEXT("PointLight"), ESearchCase::IgnoreCase))
-    {
-        NewActor = World->SpawnActor<APointLight>(APointLight::StaticClass(), Location, Rotation, SpawnParams);
-    }
-    else if (ActorType.Equals(TEXT("SpotLight"), ESearchCase::IgnoreCase))
-    {
-        NewActor = World->SpawnActor<ASpotLight>(ASpotLight::StaticClass(), Location, Rotation, SpawnParams);
-    }
-    else if (ActorType.Equals(TEXT("DirectionalLight"), ESearchCase::IgnoreCase))
-    {
-        NewActor = World->SpawnActor<ADirectionalLight>(ADirectionalLight::StaticClass(), Location, Rotation, SpawnParams);
-    }
-    else if (ActorType.Equals(TEXT("CameraActor"), ESearchCase::IgnoreCase))
-    {
-        NewActor = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(), Location, Rotation, SpawnParams);
-    }
-    else
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown actor type: %s"), *ActorType));
-    }
-
-    if (NewActor)
-    {
-        // Set scale (since SpawnActor only takes location and rotation)
-        FTransform Transform = NewActor->GetTransform();
-        Transform.SetScale3D(Scale);
-        NewActor->SetActorTransform(Transform);
-
-        // Return the created actor's details
-        return FUnrealMCPCommonUtils::ActorToJsonObject(NewActor, true);
-    }
-
-    return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to create actor"));
+/**
+ * @brief 按类路径在关卡中生成 Actor。
+ * @param [in] Params 生成参数。
+ * @return TSharedPtr<FJsonObject> 生成结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnActorFromClass(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("spawn_actor_from_class"),
+        Params);
 }
 
 /**
@@ -2402,32 +2296,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnActor(const TShared
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDeleteActor(const TSharedPtr<FJsonObject>& Params)
 {
-    FString ActorName;
-    if (!Params->TryGetStringField(TEXT("name"), ActorName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
-    }
-
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName() == ActorName)
-        {
-            // Store actor info before deletion for the response
-            TSharedPtr<FJsonObject> ActorInfo = FUnrealMCPCommonUtils::ActorToJsonObject(Actor);
-            
-            // Delete the actor
-            Actor->Destroy();
-            
-            TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-            ResultObj->SetObjectField(TEXT("deleted_actor"), ActorInfo);
-            return ResultObj;
-        }
-    }
-    
-    return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("delete_actor"),
+        Params);
 }
 
 /**
@@ -2437,53 +2310,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDeleteActor(const TShare
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorTransform(const TSharedPtr<FJsonObject>& Params)
 {
-    // Get actor name
-    FString ActorName;
-    if (!Params->TryGetStringField(TEXT("name"), ActorName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
-    }
-
-    // Find the actor
-    AActor* TargetActor = nullptr;
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName() == ActorName)
-        {
-            TargetActor = Actor;
-            break;
-        }
-    }
-
-    if (!TargetActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
-    }
-
-    // Get transform parameters
-    FTransform NewTransform = TargetActor->GetTransform();
-
-    if (Params->HasField(TEXT("location")))
-    {
-        NewTransform.SetLocation(FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("location")));
-    }
-    if (Params->HasField(TEXT("rotation")))
-    {
-        NewTransform.SetRotation(FQuat(FUnrealMCPCommonUtils::GetRotatorFromJson(Params, TEXT("rotation"))));
-    }
-    if (Params->HasField(TEXT("scale")))
-    {
-        NewTransform.SetScale3D(FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("scale")));
-    }
-
-    // Set the new transform
-    TargetActor->SetActorTransform(NewTransform);
-
-    // Return updated actor info
-    return FUnrealMCPCommonUtils::ActorToJsonObject(TargetActor, true);
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_actor_transform"),
+        Params);
 }
 
 /**
@@ -2561,23 +2392,11 @@ AActor* FUnrealMCPEditorCommands::ResolveActorByParams(
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorProperties(const TSharedPtr<FJsonObject>& Params)
 {
-    bool bIncludeComponents = true;
-    bool bDetailedComponents = true;
-    Params->TryGetBoolField(TEXT("include_components"), bIncludeComponents);
-    Params->TryGetBoolField(TEXT("detailed_components"), bDetailedComponents);
-
-    FString ErrorMessage;
-    UWorld* ResolvedWorld = nullptr;
-    FString ResolvedWorldType;
-    AActor* TargetActor = ResolveActorByParams(Params, ErrorMessage, &ResolvedWorld, &ResolvedWorldType);
-    if (!TargetActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = FUnrealMCPCommonUtils::ActorToJsonObject(TargetActor, true, bIncludeComponents, bDetailedComponents);
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, ResolvedWorld, ResolvedWorldType);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_actor_properties"),
+        Params);
 }
 
 /**
@@ -2587,39 +2406,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorProperties(const
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorComponents(const TSharedPtr<FJsonObject>& Params)
 {
-    bool bDetailedComponents = true;
-    Params->TryGetBoolField(TEXT("detailed_components"), bDetailedComponents);
-
-    FString ErrorMessage;
-    UWorld* ResolvedWorld = nullptr;
-    FString ResolvedWorldType;
-    AActor* TargetActor = ResolveActorByParams(Params, ErrorMessage, &ResolvedWorld, &ResolvedWorldType);
-    if (!TargetActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    TSharedPtr<FJsonObject> ActorObject = FUnrealMCPCommonUtils::ActorToJsonObject(TargetActor, true, true, bDetailedComponents);
-
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetObjectField(TEXT("actor"), ActorObject);
-
-    const TArray<TSharedPtr<FJsonValue>>* ComponentArray = nullptr;
-    if (ActorObject->TryGetArrayField(TEXT("components"), ComponentArray))
-    {
-        ResultObj->SetArrayField(TEXT("components"), *ComponentArray);
-        ResultObj->SetNumberField(TEXT("component_count"), ComponentArray->Num());
-    }
-    else
-    {
-        TArray<TSharedPtr<FJsonValue>> EmptyComponents;
-        ResultObj->SetArrayField(TEXT("components"), EmptyComponents);
-        ResultObj->SetNumberField(TEXT("component_count"), 0);
-    }
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, ResolvedWorld, ResolvedWorldType);
-
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_actor_components"),
+        Params);
 }
 
 /**
@@ -2629,60 +2420,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetActorComponents(const
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetSceneComponents(const TSharedPtr<FJsonObject>& Params)
 {
-    bool bDetailedComponents = true;
-    Params->TryGetBoolField(TEXT("detailed_components"), bDetailedComponents);
-
-    FString Pattern;
-    Params->TryGetStringField(TEXT("pattern"), Pattern);
-
-    FString ErrorMessage;
-    FString ResolvedWorldType;
-    UWorld* World = UnrealMCPEditorCommandsPrivate::ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
-    if (!World)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(World, AActor::StaticClass(), AllActors);
-
-    TArray<TSharedPtr<FJsonValue>> ActorArray;
-    int32 TotalComponents = 0;
-
-    for (AActor* Actor : AllActors)
-    {
-        if (!Actor)
-        {
-            continue;
-        }
-
-        if (!Pattern.IsEmpty() && !Actor->GetName().Contains(Pattern))
-        {
-            continue;
-        }
-
-        TSharedPtr<FJsonObject> ActorObject = FUnrealMCPCommonUtils::ActorToJsonObject(Actor, true, true, bDetailedComponents);
-        if (!ActorObject.IsValid())
-        {
-            continue;
-        }
-
-        const TArray<TSharedPtr<FJsonValue>>* ComponentArray = nullptr;
-        if (ActorObject->TryGetArrayField(TEXT("components"), ComponentArray))
-        {
-            TotalComponents += ComponentArray->Num();
-        }
-
-        ActorArray.Add(MakeShared<FJsonValueObject>(ActorObject));
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetArrayField(TEXT("actors"), ActorArray);
-    ResultObj->SetNumberField(TEXT("actor_count"), ActorArray.Num());
-    ResultObj->SetNumberField(TEXT("component_count"), TotalComponents);
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(ResultObj, World, ResolvedWorldType);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_scene_components"),
+        Params);
 }
 
 /**
@@ -2692,65 +2434,67 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetSceneComponents(const
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorProperty(const TSharedPtr<FJsonObject>& Params)
 {
-    // Get actor name
-    FString ActorName;
-    if (!Params->TryGetStringField(TEXT("name"), ActorName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'name' parameter"));
-    }
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_actor_property"),
+        Params);
+}
 
-    // Find the actor
-    AActor* TargetActor = nullptr;
-    TArray<AActor*> AllActors;
-    UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-    
-    for (AActor* Actor : AllActors)
-    {
-        if (Actor && Actor->GetName() == ActorName)
-        {
-            TargetActor = Actor;
-            break;
-        }
-    }
+/**
+ * @brief 设置 Actor 标签列表。
+ * @param [in] Params 标签设置参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorTags(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_actor_tags"),
+        Params);
+}
 
-    if (!TargetActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *ActorName));
-    }
+/**
+ * @brief 设置 Actor 文件夹路径。
+ * @param [in] Params 文件夹路径设置参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorFolderPath(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_actor_folder_path"),
+        Params);
+}
 
-    // Get property name
-    FString PropertyName;
-    if (!Params->TryGetStringField(TEXT("property_name"), PropertyName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'property_name' parameter"));
-    }
+/**
+ * @brief 设置 Actor 可见性状态。
+ * @param [in] Params 可见性设置参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorVisibility(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_actor_visibility"),
+        Params);
+}
 
-    // Get property value
-    if (!Params->HasField(TEXT("property_value")))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'property_value' parameter"));
-    }
-    
-    TSharedPtr<FJsonValue> PropertyValue = Params->Values.FindRef(TEXT("property_value"));
-    
-    // Set the property using our utility function
-    FString ErrorMessage;
-    if (FUnrealMCPCommonUtils::SetObjectProperty(TargetActor, PropertyName, PropertyValue, ErrorMessage))
-    {
-        // Property set successfully
-        TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-        ResultObj->SetStringField(TEXT("actor"), ActorName);
-        ResultObj->SetStringField(TEXT("property"), PropertyName);
-        ResultObj->SetBoolField(TEXT("success"), true);
-        
-        // Also include the full actor details
-        ResultObj->SetObjectField(TEXT("actor_details"), FUnrealMCPCommonUtils::ActorToJsonObject(TargetActor, true));
-        return ResultObj;
-    }
-    else
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
+/**
+ * @brief 设置 Actor 根组件 Mobility。
+ * @param [in] Params Mobility 设置参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorMobility(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_actor_mobility"),
+        Params);
 }
 
 /**
@@ -2760,79 +2504,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorProperty(const T
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnBlueprintActor(const TSharedPtr<FJsonObject>& Params)
 {
-    // Get required parameters
-    FString BlueprintName;
-    if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'blueprint_name' parameter"));
-    }
-
-    FString ActorName;
-    if (!Params->TryGetStringField(TEXT("actor_name"), ActorName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'actor_name' parameter"));
-    }
-
-    // Find the blueprint
-    if (BlueprintName.IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Blueprint name is empty"));
-    }
-
-    FString Root      = TEXT("/Game/Blueprints/");
-    FString AssetPath = Root + BlueprintName;
-
-    if (!FPackageName::DoesPackageExist(AssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint '%s' not found – it must reside under /Game/Blueprints"), *BlueprintName));
-    }
-
-    UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *AssetPath);
-    if (!Blueprint)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintName));
-    }
-
-    // Get transform parameters
-    FVector Location(0.0f, 0.0f, 0.0f);
-    FRotator Rotation(0.0f, 0.0f, 0.0f);
-    FVector Scale(1.0f, 1.0f, 1.0f);
-
-    if (Params->HasField(TEXT("location")))
-    {
-        Location = FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("location"));
-    }
-    if (Params->HasField(TEXT("rotation")))
-    {
-        Rotation = FUnrealMCPCommonUtils::GetRotatorFromJson(Params, TEXT("rotation"));
-    }
-    if (Params->HasField(TEXT("scale")))
-    {
-        Scale = FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("scale"));
-    }
-
-    // Spawn the actor
-    UWorld* World = GEditor->GetEditorWorldContext().World();
-    if (!World)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to get editor world"));
-    }
-
-    FTransform SpawnTransform;
-    SpawnTransform.SetLocation(Location);
-    SpawnTransform.SetRotation(FQuat(Rotation));
-    SpawnTransform.SetScale3D(Scale);
-
-    FActorSpawnParameters SpawnParams;
-    SpawnParams.Name = *ActorName;
-
-    AActor* NewActor = World->SpawnActor<AActor>(Blueprint->GeneratedClass, SpawnTransform, SpawnParams);
-    if (NewActor)
-    {
-        return FUnrealMCPCommonUtils::ActorToJsonObject(NewActor, true);
-    }
-
-    return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to spawn blueprint actor"));
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("spawn_blueprint_actor"),
+        Params);
 }
 
 /**
@@ -2842,37 +2518,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSpawnBlueprintActor(cons
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDuplicateActor(const TSharedPtr<FJsonObject>& Params)
 {
-    FString ErrorMessage;
-    UWorld* ResolvedWorld = nullptr;
-    FString ResolvedWorldType;
-    AActor* SourceActor = ResolveActorByParams(Params, ErrorMessage, &ResolvedWorld, &ResolvedWorldType);
-    if (!SourceActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UEditorActorSubsystem* ActorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UEditorActorSubsystem>() : nullptr;
-    if (!ActorSubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("EditorActorSubsystem is unavailable"));
-    }
-
-    FVector Offset = FVector::ZeroVector;
-    if (Params->HasField(TEXT("offset")))
-    {
-        Offset = FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("offset"));
-    }
-
-    AActor* DuplicatedActor = ActorSubsystem->DuplicateActor(SourceActor, ResolvedWorld, Offset);
-    if (!DuplicatedActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to duplicate actor: %s"), *SourceActor->GetName()));
-    }
-
-    TSharedPtr<FJsonObject> Result = FUnrealMCPCommonUtils::ActorToJsonObject(DuplicatedActor, true);
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(Result, ResolvedWorld, ResolvedWorldType);
-    Result->SetStringField(TEXT("source_actor"), SourceActor->GetName());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("duplicate_actor"),
+        Params);
 }
 
 /**
@@ -2882,10 +2532,40 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDuplicateActor(const TSh
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSelectActor(const TSharedPtr<FJsonObject>& Params)
 {
+    const TSharedPtr<FJsonObject> LocalPythonResult = FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("resolve_actor_for_selection"),
+        Params);
+    if (!LocalPythonResult.IsValid())
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("本地 Python 未返回选中预解析结果"));
+    }
+
+    const bool bResolveSuccess = !LocalPythonResult->HasTypedField<EJson::Boolean>(TEXT("success")) ||
+        LocalPythonResult->GetBoolField(TEXT("success"));
+    if (!bResolveSuccess)
+    {
+        return LocalPythonResult;
+    }
+
+    FString ActorPath;
+    if (!LocalPythonResult->TryGetStringField(TEXT("actor_path"), ActorPath) || ActorPath.TrimStartAndEnd().IsEmpty())
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("本地 Python 未返回 actor_path"));
+    }
+
+    FString BridgedWorldType = TEXT("auto");
+    LocalPythonResult->TryGetStringField(TEXT("resolved_world_type"), BridgedWorldType);
+
+    TSharedPtr<FJsonObject> ResolveParams = MakeShared<FJsonObject>();
+    ResolveParams->SetStringField(TEXT("actor_path"), ActorPath);
+    ResolveParams->SetStringField(TEXT("world_type"), BridgedWorldType);
+
     FString ErrorMessage;
     UWorld* ResolvedWorld = nullptr;
     FString ResolvedWorldType;
-    AActor* TargetActor = ResolveActorByParams(Params, ErrorMessage, &ResolvedWorld, &ResolvedWorldType);
+    AActor* TargetActor = ResolveActorByParams(ResolveParams, ErrorMessage, &ResolvedWorld, &ResolvedWorldType);
     if (!TargetActor)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
@@ -2917,6 +2597,9 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSelectActor(const TShare
     TSharedPtr<FJsonObject> Result = FUnrealMCPCommonUtils::ActorToJsonObject(TargetActor, true);
     UnrealMCPEditorCommandsPrivate::AppendWorldInfo(Result, ResolvedWorld, ResolvedWorldType);
     Result->SetBoolField(TEXT("selected"), true);
+    Result->SetStringField(TEXT("implementation"), TEXT("python_cpp_bridge"));
+    Result->SetStringField(TEXT("implementation_module"), TEXT("commands.editor.editor_commands"));
+    Result->SetStringField(TEXT("implementation_command"), TEXT("resolve_actor_for_selection"));
     return Result;
 }
 
@@ -2927,40 +2610,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSelectActor(const TShare
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetSelectedActors(const TSharedPtr<FJsonObject>& Params)
 {
-    if (!GEditor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Editor instance is not available"));
-    }
-
-    const bool bIncludeComponents = Params->HasTypedField<EJson::Boolean>(TEXT("include_components"))
-        ? Params->GetBoolField(TEXT("include_components"))
-        : false;
-    const bool bDetailedComponents = Params->HasTypedField<EJson::Boolean>(TEXT("detailed_components"))
-        ? Params->GetBoolField(TEXT("detailed_components"))
-        : true;
-
-    USelection* SelectedActors = GEditor->GetSelectedActors();
-    TArray<TSharedPtr<FJsonValue>> ActorValues;
-
-    if (SelectedActors)
-    {
-        for (FSelectionIterator It(*SelectedActors); It; ++It)
-        {
-            AActor* Actor = Cast<AActor>(*It);
-            if (!Actor)
-            {
-                continue;
-            }
-
-            ActorValues.Add(FUnrealMCPCommonUtils::ActorToJson(Actor, bIncludeComponents, bDetailedComponents));
-        }
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetArrayField(TEXT("actors"), ActorValues);
-    Result->SetNumberField(TEXT("actor_count"), ActorValues.Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_selected_actors"),
+        Params);
 }
 
 /**
@@ -2970,64 +2624,95 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetSelectedActors(const 
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetEditorSelection(const TSharedPtr<FJsonObject>& Params)
 {
-    if (!GEditor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Editor instance is not available"));
-    }
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_editor_selection"),
+        Params);
+}
 
-    const bool bIncludeComponents = Params->HasTypedField<EJson::Boolean>(TEXT("include_components"))
-        ? Params->GetBoolField(TEXT("include_components"))
-        : false;
-    const bool bDetailedComponents = Params->HasTypedField<EJson::Boolean>(TEXT("detailed_components"))
-        ? Params->GetBoolField(TEXT("detailed_components"))
-        : true;
-    const bool bIncludeTags = Params->HasTypedField<EJson::Boolean>(TEXT("include_tags"))
-        ? Params->GetBoolField(TEXT("include_tags"))
-        : false;
+/**
+ * @brief 读取当前 World 的 WorldSettings 常用属性。
+ * @param [in] Params 查询参数（支持 world_type、property_names）。
+ * @return TSharedPtr<FJsonObject> WorldSettings 属性结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetWorldSettings(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_world_settings"),
+        Params);
+}
 
-    TArray<TSharedPtr<FJsonValue>> ActorValues;
-    if (USelection* SelectedActors = GEditor->GetSelectedActors())
-    {
-        for (FSelectionIterator It(*SelectedActors); It; ++It)
-        {
-            AActor* Actor = Cast<AActor>(*It);
-            if (!Actor)
-            {
-                continue;
-            }
+/**
+ * @brief 写入当前 World 的 WorldSettings 属性。
+ * @param [in] Params 更新参数（支持 world_type、settings）。
+ * @return TSharedPtr<FJsonObject> WorldSettings 更新结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetWorldSettings(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_world_settings"),
+        Params);
+}
 
-            ActorValues.Add(FUnrealMCPCommonUtils::ActorToJson(Actor, bIncludeComponents, bDetailedComponents));
-        }
-    }
+/**
+ * @brief 创建灯光 Actor。
+ * @param [in] Params 创建参数。
+ * @return TSharedPtr<FJsonObject> 创建结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCreateLight(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("create_light"),
+        Params);
+}
 
-    TArray<TSharedPtr<FJsonValue>> AssetValues;
-    const TArray<FAssetData> SelectedAssets = UEditorUtilityLibrary::GetSelectedAssetData();
-    AssetValues.Reserve(SelectedAssets.Num());
+/**
+ * @brief 设置灯光 Actor 属性。
+ * @param [in] Params 修改参数。
+ * @return TSharedPtr<FJsonObject> 修改结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetLightProperties(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_light_properties"),
+        Params);
+}
 
-    for (const FAssetData& AssetData : SelectedAssets)
-    {
-        TSharedPtr<FJsonObject> AssetObject = UnrealMCPEditorCommandsPrivate::CreateAssetIdentityObject(AssetData);
-        if (bIncludeTags)
-        {
-            UnrealMCPEditorCommandsPrivate::AppendAssetTagsToObject(AssetData, AssetObject, 128);
-        }
-        AssetValues.Add(MakeShared<FJsonValueObject>(AssetObject));
-    }
+/**
+ * @brief 将场景捕捉到指定 RenderTarget。
+ * @param [in] Params 捕捉参数。
+ * @return TSharedPtr<FJsonObject> 捕捉结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCaptureSceneToRenderTarget(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("capture_scene_to_render_target"),
+        Params);
+}
 
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetArrayField(TEXT("actors"), ActorValues);
-    Result->SetNumberField(TEXT("actor_count"), ActorValues.Num());
-    Result->SetArrayField(TEXT("assets"), AssetValues);
-    Result->SetNumberField(TEXT("asset_count"), AssetValues.Num());
-    Result->SetNumberField(TEXT("selection_count"), ActorValues.Num() + AssetValues.Num());
-
-    if (UWorld* EditorWorld = UnrealMCPEditorCommandsPrivate::GetEditorWorld())
-    {
-        UnrealMCPEditorCommandsPrivate::AppendWorldInfo(Result, EditorWorld, TEXT("editor"));
-    }
-
-    return Result;
+/**
+ * @brief 修改 PostProcessVolume 的常用参数与 PostProcessSettings。
+ * @param [in] Params 更新参数。
+ * @return TSharedPtr<FJsonObject> 更新结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetPostProcessSettings(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_post_process_settings"),
+        Params);
 }
 
 /**
@@ -3037,59 +2722,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetEditorSelection(const
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleAttachActor(const TSharedPtr<FJsonObject>& Params)
 {
-    FString ErrorMessage;
-    UWorld* ResolvedWorld = nullptr;
-    FString ResolvedWorldType;
-    AActor* ChildActor = ResolveActorByParams(Params, ErrorMessage, &ResolvedWorld, &ResolvedWorldType);
-    if (!ChildActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TSharedPtr<FJsonObject> ParentParams = MakeShared<FJsonObject>();
-    FString ParentName;
-    FString ParentActorPath;
-    if (Params->TryGetStringField(TEXT("parent_name"), ParentName))
-    {
-        ParentParams->SetStringField(TEXT("name"), ParentName);
-    }
-    if (Params->TryGetStringField(TEXT("parent_actor_path"), ParentActorPath))
-    {
-        ParentParams->SetStringField(TEXT("actor_path"), ParentActorPath);
-    }
-    if (Params->HasTypedField<EJson::String>(TEXT("world_type")))
-    {
-        ParentParams->SetStringField(TEXT("world_type"), Params->GetStringField(TEXT("world_type")));
-    }
-
-    AActor* ParentActor = ResolveActorByParams(ParentParams, ErrorMessage, nullptr, nullptr);
-    if (!ParentActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to resolve parent actor: %s"), *ErrorMessage));
-    }
-
-    const bool bKeepWorldTransform = Params->HasTypedField<EJson::Boolean>(TEXT("keep_world_transform"))
-        ? Params->GetBoolField(TEXT("keep_world_transform"))
-        : true;
-    FString SocketName;
-    Params->TryGetStringField(TEXT("socket_name"), SocketName);
-
-    const FAttachmentTransformRules AttachmentRules = bKeepWorldTransform
-        ? FAttachmentTransformRules::KeepWorldTransform
-        : FAttachmentTransformRules::KeepRelativeTransform;
-
-    if (!ChildActor->AttachToActor(ParentActor, AttachmentRules, FName(*SocketName)))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to attach actor"));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("child_actor"), ChildActor->GetName());
-    Result->SetStringField(TEXT("parent_actor"), ParentActor->GetName());
-    Result->SetStringField(TEXT("socket_name"), SocketName);
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(Result, ResolvedWorld, ResolvedWorldType);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("attach_actor"),
+        Params);
 }
 
 /**
@@ -3099,29 +2736,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleAttachActor(const TShare
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDetachActor(const TSharedPtr<FJsonObject>& Params)
 {
-    FString ErrorMessage;
-    UWorld* ResolvedWorld = nullptr;
-    FString ResolvedWorldType;
-    AActor* TargetActor = ResolveActorByParams(Params, ErrorMessage, &ResolvedWorld, &ResolvedWorldType);
-    if (!TargetActor)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    const bool bKeepWorldTransform = Params->HasTypedField<EJson::Boolean>(TEXT("keep_world_transform"))
-        ? Params->GetBoolField(TEXT("keep_world_transform"))
-        : true;
-    const FDetachmentTransformRules DetachmentRules = bKeepWorldTransform
-        ? FDetachmentTransformRules::KeepWorldTransform
-        : FDetachmentTransformRules::KeepRelativeTransform;
-
-    TargetActor->DetachFromActor(DetachmentRules);
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("actor"), TargetActor->GetName());
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(Result, ResolvedWorld, ResolvedWorldType);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("detach_actor"),
+        Params);
 }
 
 /**
@@ -3131,76 +2750,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDetachActor(const TShare
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorsTransform(const TSharedPtr<FJsonObject>& Params)
 {
-    const TArray<TSharedPtr<FJsonValue>>* ActorNames = nullptr;
-    if (!Params->TryGetArrayField(TEXT("actor_names"), ActorNames) || !ActorNames || ActorNames->Num() == 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'actor_names' parameter"));
-    }
-
-    const bool bHasLocation = Params->HasField(TEXT("location"));
-    const bool bHasRotation = Params->HasField(TEXT("rotation"));
-    const bool bHasScale = Params->HasField(TEXT("scale"));
-
-    const FVector Location = bHasLocation ? FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("location")) : FVector::ZeroVector;
-    const FRotator Rotation = bHasRotation ? FUnrealMCPCommonUtils::GetRotatorFromJson(Params, TEXT("rotation")) : FRotator::ZeroRotator;
-    const FVector Scale = bHasScale ? FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("scale")) : FVector(1.0f, 1.0f, 1.0f);
-
-    TArray<TSharedPtr<FJsonValue>> UpdatedActors;
-    FString FirstResolvedWorldType;
-    UWorld* FirstResolvedWorld = nullptr;
-
-    for (const TSharedPtr<FJsonValue>& ActorNameValue : *ActorNames)
-    {
-        const FString ActorName = ActorNameValue.IsValid() ? ActorNameValue->AsString() : TEXT("");
-        if (ActorName.IsEmpty())
-        {
-            continue;
-        }
-
-        TSharedPtr<FJsonObject> SingleActorParams = MakeShared<FJsonObject>();
-        SingleActorParams->SetStringField(TEXT("name"), ActorName);
-        if (Params->HasTypedField<EJson::String>(TEXT("world_type")))
-        {
-            SingleActorParams->SetStringField(TEXT("world_type"), Params->GetStringField(TEXT("world_type")));
-        }
-
-        FString ErrorMessage;
-        UWorld* ResolvedWorld = nullptr;
-        FString ResolvedWorldType;
-        AActor* Actor = ResolveActorByParams(SingleActorParams, ErrorMessage, &ResolvedWorld, &ResolvedWorldType);
-        if (!Actor)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to resolve actor '%s': %s"), *ActorName, *ErrorMessage));
-        }
-
-        if (!FirstResolvedWorld)
-        {
-            FirstResolvedWorld = ResolvedWorld;
-            FirstResolvedWorldType = ResolvedWorldType;
-        }
-
-        if (bHasLocation)
-        {
-            Actor->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
-        }
-        if (bHasRotation)
-        {
-            Actor->SetActorRotation(Rotation, ETeleportType::TeleportPhysics);
-        }
-        if (bHasScale)
-        {
-            Actor->SetActorScale3D(Scale);
-        }
-
-        UpdatedActors.Add(FUnrealMCPCommonUtils::ActorToJson(Actor, false, true));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetArrayField(TEXT("actors"), UpdatedActors);
-    Result->SetNumberField(TEXT("actor_count"), UpdatedActors.Num());
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(Result, FirstResolvedWorld, FirstResolvedWorldType);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_actors_transform"),
+        Params);
 }
 
 /**
@@ -3210,89 +2764,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorsTransform(const
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleFocusViewport(const TSharedPtr<FJsonObject>& Params)
 {
-    // Get target actor name if provided
-    FString TargetActorName;
-    bool HasTargetActor = Params->TryGetStringField(TEXT("target"), TargetActorName);
-
-    // Get location if provided
-    FVector Location(0.0f, 0.0f, 0.0f);
-    bool HasLocation = false;
-    if (Params->HasField(TEXT("location")))
-    {
-        Location = FUnrealMCPCommonUtils::GetVectorFromJson(Params, TEXT("location"));
-        HasLocation = true;
-    }
-
-    // Get distance
-    float Distance = 1000.0f;
-    if (Params->HasField(TEXT("distance")))
-    {
-        Distance = Params->GetNumberField(TEXT("distance"));
-    }
-
-    // Get orientation if provided
-    FRotator Orientation(0.0f, 0.0f, 0.0f);
-    bool HasOrientation = false;
-    if (Params->HasField(TEXT("orientation")))
-    {
-        Orientation = FUnrealMCPCommonUtils::GetRotatorFromJson(Params, TEXT("orientation"));
-        HasOrientation = true;
-    }
-
-    // Get the active viewport
-    FLevelEditorViewportClient* ViewportClient = (FLevelEditorViewportClient*)GEditor->GetActiveViewport()->GetClient();
-    if (!ViewportClient)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to get active viewport"));
-    }
-
-    // If we have a target actor, focus on it
-    if (HasTargetActor)
-    {
-        // Find the actor
-        AActor* TargetActor = nullptr;
-        TArray<AActor*> AllActors;
-        UGameplayStatics::GetAllActorsOfClass(GWorld, AActor::StaticClass(), AllActors);
-        
-        for (AActor* Actor : AllActors)
-        {
-            if (Actor && Actor->GetName() == TargetActorName)
-            {
-                TargetActor = Actor;
-                break;
-            }
-        }
-
-        if (!TargetActor)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Actor not found: %s"), *TargetActorName));
-        }
-
-        // Focus on the actor
-        ViewportClient->SetViewLocation(TargetActor->GetActorLocation() - FVector(Distance, 0.0f, 0.0f));
-    }
-    // Otherwise use the provided location
-    else if (HasLocation)
-    {
-        ViewportClient->SetViewLocation(Location - FVector(Distance, 0.0f, 0.0f));
-    }
-    else
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Either 'target' or 'location' must be provided"));
-    }
-
-    // Set orientation if provided
-    if (HasOrientation)
-    {
-        ViewportClient->SetViewRotation(Orientation);
-    }
-
-    // Force viewport to redraw
-    ViewportClient->Invalidate();
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("focus_viewport"),
+        Params);
 }
 
 /**
@@ -3592,35 +3068,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCaptureViewportSequence(
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleOpenAssetEditor(const TSharedPtr<FJsonObject>& Params)
 {
-    FString AssetPath;
-    if (!Params->TryGetStringField(TEXT("asset_path"), AssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'asset_path' parameter"));
-    }
-
-    UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
-    if (!Asset)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load asset: %s"), *AssetPath));
-    }
-
-    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
-    if (!AssetEditorSubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("AssetEditorSubsystem is unavailable"));
-    }
-
-    const bool bOpened = AssetEditorSubsystem->OpenEditorForAsset(Asset);
-    if (!bOpened)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to open asset editor: %s"), *AssetPath));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("asset_path"), AssetPath);
-    Result->SetStringField(TEXT("object_path"), Asset->GetPathName());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("open_asset_editor"),
+        Params);
 }
 
 /**
@@ -3630,33 +3082,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleOpenAssetEditor(const TS
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCloseAssetEditor(const TSharedPtr<FJsonObject>& Params)
 {
-    FString AssetPath;
-    if (!Params->TryGetStringField(TEXT("asset_path"), AssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'asset_path' parameter"));
-    }
-
-    UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
-    if (!Asset)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load asset: %s"), *AssetPath));
-    }
-
-    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
-    if (!AssetEditorSubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("AssetEditorSubsystem is unavailable"));
-    }
-
-    const int32 ClosedEditorCount = AssetEditorSubsystem->CloseAllEditorsForAsset(Asset);
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("asset_path"), AssetPath);
-    Result->SetStringField(TEXT("object_path"), Asset->GetPathName());
-    Result->SetNumberField(TEXT("closed_editor_count"), ClosedEditorCount);
-    Result->SetBoolField(TEXT("had_open_editor"), ClosedEditorCount > 0);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("close_asset_editor"),
+        Params);
 }
 
 /**
@@ -3817,55 +3247,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleExecuteUnrealPython(cons
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleRunEditorUtilityWidget(const TSharedPtr<FJsonObject>& Params)
 {
-    FString AssetPath;
-    if (!Params->TryGetStringField(TEXT("asset_path"), AssetPath) || AssetPath.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'asset_path' parameter"));
-    }
-
-    UEditorUtilitySubsystem* EditorUtilitySubsystem = GEditor ? GEditor->GetEditorSubsystem<UEditorUtilitySubsystem>() : nullptr;
-    if (!EditorUtilitySubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("EditorUtilitySubsystem is unavailable"));
-    }
-
-    UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
-    UEditorUtilityWidgetBlueprint* UtilityWidgetBlueprint = Cast<UEditorUtilityWidgetBlueprint>(Asset);
-    if (!UtilityWidgetBlueprint)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Asset is not an Editor Utility Widget Blueprint: %s"), *AssetPath));
-    }
-
-    FString RequestedTabId;
-    Params->TryGetStringField(TEXT("tab_id"), RequestedTabId);
-
-    UEditorUtilityWidget* SpawnedWidget = nullptr;
-    FName ResolvedTabId = NAME_None;
-    if (RequestedTabId.TrimStartAndEnd().IsEmpty())
-    {
-        SpawnedWidget = EditorUtilitySubsystem->SpawnAndRegisterTabAndGetID(UtilityWidgetBlueprint, ResolvedTabId);
-    }
-    else
-    {
-        ResolvedTabId = FName(*RequestedTabId);
-        SpawnedWidget = EditorUtilitySubsystem->SpawnAndRegisterTabWithId(UtilityWidgetBlueprint, ResolvedTabId);
-    }
-
-    if (!SpawnedWidget)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Failed to run Editor Utility Widget: %s"), *AssetPath));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("asset_path"), AssetPath);
-    Result->SetStringField(TEXT("object_path"), UtilityWidgetBlueprint->GetPathName());
-    Result->SetStringField(TEXT("tab_id"), ResolvedTabId.ToString());
-    Result->SetStringField(TEXT("widget_name"), SpawnedWidget->GetName());
-    Result->SetStringField(TEXT("widget_class"), SpawnedWidget->GetClass()->GetPathName());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("run_editor_utility_widget"),
+        Params);
 }
 
 /**
@@ -3875,55 +3261,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleRunEditorUtilityWidget(c
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleRunEditorUtilityBlueprint(const TSharedPtr<FJsonObject>& Params)
 {
-    FString AssetPath;
-    if (!Params->TryGetStringField(TEXT("asset_path"), AssetPath) || AssetPath.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'asset_path' parameter"));
-    }
-
-    UEditorUtilitySubsystem* EditorUtilitySubsystem = GEditor ? GEditor->GetEditorSubsystem<UEditorUtilitySubsystem>() : nullptr;
-    if (!EditorUtilitySubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("EditorUtilitySubsystem is unavailable"));
-    }
-
-    UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
-    if (!Asset)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to load asset: %s"), *AssetPath));
-    }
-
-    if (Cast<UEditorUtilityWidgetBlueprint>(Asset))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            TEXT("Editor Utility Widget 请改用 run_editor_utility_widget"));
-    }
-
-    UEditorUtilityBlueprint* UtilityBlueprint = Cast<UEditorUtilityBlueprint>(Asset);
-    if (!UtilityBlueprint)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Asset is not an Editor Utility Blueprint: %s"), *AssetPath));
-    }
-
-    if (!EditorUtilitySubsystem->CanRun(Asset))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Editor Utility Blueprint 不可运行或缺少有效 Run 入口: %s"), *AssetPath));
-    }
-
-    if (!EditorUtilitySubsystem->TryRun(Asset))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Failed to run Editor Utility Blueprint: %s"), *AssetPath));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("asset_path"), AssetPath);
-    Result->SetStringField(TEXT("object_path"), UtilityBlueprint->GetPathName());
-    Result->SetStringField(TEXT("generated_class"), UtilityBlueprint->GeneratedClass ? UtilityBlueprint->GeneratedClass->GetPathName() : TEXT(""));
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("run_editor_utility_blueprint"),
+        Params);
 }
 
 /**

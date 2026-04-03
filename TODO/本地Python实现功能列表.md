@@ -176,6 +176,321 @@
     - UE5.7 Python 已暴露 `TextureRenderTarget2D` 的 `size_x`、`size_y`、`render_target_format`、`clear_color`、`auto_generate_mips` 等编辑器属性。
     - 创建后直接在资产对象上设置这些属性即可稳定回读，属于典型的编辑器资产脚本场景，适合继续走本地 Python。
 
+### 2026-04-03 第十批：材质槽赋值
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/assets/asset_commands.py`：
+  - `assign_material_to_actor`
+  - `assign_material_to_component`
+  - `replace_material_slot`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧负责 `world_type` 解析、Actor/组件查找、材质槽定位、材质赋值与返回结构拼装。
+- 本轮补充判断：
+  - 这 3 项本质上仍是编辑器对象查询 + `MeshComponent.set_material(...)` 的轻量写操作。
+  - UE5.7 Python 已稳定暴露 `GameplayStatics.get_all_actors_of_class(...)`、`Actor.get_components_by_class(...)`、`MeshComponent.get_material_slot_names()`、`get_material()`、`set_material()`。
+  - 行为边界清晰，失败模式可以稳定回收到 “Actor 不存在 / 组件不存在 / 槽位不存在 / 未指定 component_name” 这几类错误，适合下沉到本地 Python。
+
+### 2026-04-03 第十一批：编辑器关卡与资产编辑器控制
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `load_level`
+  - `save_current_level`
+  - `open_asset_editor`
+  - `close_asset_editor`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧负责 `LevelEditorSubsystem`、`AssetEditorSubsystem` 的调用、资源解析与返回结果组装。
+- 本轮补充判断：
+  - `load_level` / `save_current_level`
+    - UE5.7 Python 已稳定暴露 `LevelEditorSubsystem.load_level(...)` 与 `save_current_level(...)`。
+    - 这两项属于明确的编辑器脚本调用，不涉及复杂生命周期桥接，适合落在本地 Python。
+  - `open_asset_editor` / `close_asset_editor`
+    - UE5.7 Python 已稳定暴露 `AssetEditorSubsystem.open_editor_for_assets(...)` 与 `close_all_editors_for_asset(...)`。
+    - 逻辑只包含资源解析、编辑器标签开关与结果回读，失败模式清晰，适合迁移到本地 Python。
+
+### 2026-04-03 第十二批：编辑器选中查询
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `get_selected_actors`
+  - `get_editor_selection`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧负责读取编辑器当前选中的 Actor / 资产，并按现有 MCP 契约组装基础 Actor、组件、资产与世界信息。
+- 本轮补充判断：
+- `get_selected_actors` / `get_editor_selection`
+    - UE5.7 Python 已稳定暴露 `EditorActorSubsystem.get_selected_level_actors()` 与 `EditorUtilityLibrary.get_selected_asset_data()`。
+    - 这两项本质上仍是编辑器查询与结果序列化，不涉及 PIE/VR 状态切换、事务系统或复杂生命周期管理，适合下沉到本地 Python。
+  - `select_actor`
+    - 暂继续保留为 `C++ 主实现`。
+    - 原因是 UE5.7 Python 的 `set_actor_selection_state(...)` 没有覆盖当前工具契约里的 `notify`、`select_even_if_hidden` 等行为控制；强行纯 Python 会让现有参数语义退化。
+
+### 2026-04-03 第十三批：灯光 Actor 创建与属性调整
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `create_light`
+  - `set_light_properties`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧负责 `world_type` 解析、灯光 Actor 创建、LightComponent 查找、属性写入与结果序列化。
+- 本轮补充判断：
+  - `create_light`
+    - UE5.7 Python 已稳定暴露 `EditorActorSubsystem.spawn_actor_from_class(...)`，足以覆盖 Point / Spot / Directional 三类灯光 Actor 的创建。
+    - 创建后再通过 LightComponent 写入强度、颜色、衰减半径、锥角等属性，链路更短，也更容易验证。
+  - `set_light_properties`
+    - UE5.7 Python 已稳定暴露 `LightComponent.set_intensity(...)`、`set_light_color(...)` 与一组编辑器属性写接口。
+    - 这项本质上是编辑器对象查找 + 轻量属性写入，不涉及复杂生命周期或运行态状态机，适合继续保留为 `本地Python 主实现`。
+
+### 2026-04-03 第十四批：场景捕捉与 PostProcessVolume 调整
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `capture_scene_to_render_target`
+  - `set_post_process_settings`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧负责 `SceneCapture2D` 查找/临时创建、RenderTarget 绑定、手动触发 `capture_scene()`，以及 `PostProcessVolume` 查找、Volume 参数更新与 `PostProcessSettings` 覆写。
+- 本轮补充判断：
+  - `capture_scene_to_render_target`
+    - UE5.7 Python 已稳定暴露 `SceneCapture2D`、`SceneCaptureComponent2D.texture_target`、`capture_scene()` 与 `UnrealEditorSubsystem.get_level_viewport_camera_info()`。
+    - 命令本质上是编辑器对象查找 + 短链路捕捉动作，不涉及复杂运行态控制；临时 `SceneCapture2D` 也可以在捕捉后立即回收，适合继续保留为 `本地Python 主实现`。
+  - `set_post_process_settings`
+    - UE5.7 Python 已稳定暴露 `PostProcessVolume.settings` 与 `PostProcessSettings` 的大批编辑器属性。
+    - 该命令主要是反射式属性写入和 `override_<property>` 同步，失败边界清晰，属于典型编辑器脚本场景，适合落在本地 Python。
+
+### 2026-04-03 第十五批：关卡 Actor 查询
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `get_actors_in_level`
+  - `find_actors_by_name`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧新增 `ActorQueryHelper`，负责 `world_type` 解析、Actor 枚举、名称模式过滤、世界信息补充与结果序列化。
+- 本轮补充判断：
+  - `get_actors_in_level`
+    - UE5.7 Python 已稳定暴露 `GameplayStatics.get_all_actors_of_class(...)`，可以直接枚举指定 World 下的全部 Actor。
+    - 结果仍复用当前本地序列化器输出 Actor/组件结构，链路短，验证成本低，适合下沉到本地 Python。
+  - `find_actors_by_name`
+    - 当前工具契约只要求按 `Actor.get_name()` 做包含匹配，不依赖复杂索引或事务控制。
+    - 该能力本质上是在 `get_actors_in_level` 的基础上做轻量过滤，适合与世界解析和序列化一起收敛到同一个本地 Python 帮助类中。
+
+### 2026-04-03 第十六批：单 Actor 与场景组件查询
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `get_actor_properties`
+  - `get_actor_components`
+  - `get_scene_components`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧复用 `ActorQueryHelper` 统一处理 `world_type` 解析、`name/actor_path` 查找、Actor/组件序列化与场景范围组件统计。
+- 本轮补充判断：
+  - `get_actor_properties`
+    - 这项本质上是对单个 Actor 复用既有序列化器输出，没有额外事务或生命周期控制。
+    - UE5.7 Python 已稳定支持 `GameplayStatics.get_all_actors_of_class(...)` 与 Actor/Component 反射读取，适合下沉到本地 Python。
+  - `get_actor_components`
+    - 当前返回结构只是把单 Actor 序列化结果里的 `components` 单独提取并补上计数，属于查询拼装逻辑。
+    - 和 `get_actor_properties` 共享同一套 Actor 解析逻辑后，维护成本更低。
+  - `get_scene_components`
+    - 该命令只是遍历目标 World 下的 Actor，按可选 `pattern` 过滤后累计组件数量。
+    - 查询链路短、失败边界清晰，适合继续保留为 `本地Python 主实现`。
+
+### 2026-04-03 第十七批：Actor 基础编辑
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `spawn_actor`
+  - `delete_actor`
+  - `set_actor_transform`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧新增 `ActorEditHelper`，负责编辑器 World 解析、Actor 类型映射、对象重命名、静态网格绑定、删除与变换写入。
+- 本轮补充判断：
+  - `spawn_actor`
+    - UE5.7 Python 已稳定暴露 `EditorActorSubsystem.spawn_actor_from_class(...)`，并且生成后可直接调用 `rename(...)` 与 `set_actor_label(...)`，能够保留当前工具契约里的命名语义。
+    - 该命令本质上仍是编辑器内对象生成和少量初始化逻辑，适合下沉到本地 Python。
+  - `delete_actor`
+    - 删除前只需序列化 Actor 摘要，随后通过 `EditorActorSubsystem.destroy_actor(...)` 回收即可。
+    - 失败边界清晰，没有额外事务状态机依赖，适合继续保留为 `本地Python 主实现`。
+  - `set_actor_transform`
+    - 该命令只是对现有 Actor 执行位置、旋转、缩放的轻量写入，可直接复用本地 Python 的 Actor 查找与序列化逻辑。
+    - 相比继续保留 C++，Python 实现更短，也更利于后续把 `spawn_actor`、`duplicate_actor`、`set_actors_transform` 收敛到同一编辑器帮助类。
+
+### 2026-04-03 第十八批：Actor 复制与批量变换
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `duplicate_actor`
+  - `set_actors_transform`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧继续复用 `ActorEditHelper`，统一处理 Actor 查找、复制、批量变换写入与返回序列化。
+- 本轮补充判断：
+  - `duplicate_actor`
+    - UE5.7 Python 已稳定暴露 `EditorActorSubsystem.duplicate_actor(...)`，可以直接复用现有 `name/actor_path/world_type/offset` 契约。
+    - 该命令仍是单个 Actor 的轻量编辑器操作，失败边界清晰，适合并入本地 Python。
+  - `set_actors_transform`
+    - 本质上只是对多个已解析 Actor 复用 `set_actor_transform` 的写入逻辑，并聚合结果列表。
+    - 逻辑与当前本地 Python 的 Actor 解析/序列化体系完全一致，继续保留在同一个帮助类中维护成本更低。
+
+### 2026-04-03 第十九批：编辑器视口聚焦
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `focus_viewport`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧新增 `ViewportCommandHelper`，负责解析目标 Actor / 坐标、读取当前视口朝向、计算相机落点并写回活动关卡视口。
+- 本轮补充判断：
+  - `focus_viewport`
+    - UE5.7 Python 已稳定暴露 `UnrealEditorSubsystem.get_level_viewport_camera_info(...)`、`set_level_viewport_camera_info(...)`，以及 `LevelEditorSubsystem.editor_invalidate_viewports()`。
+    - 该命令本质上只是编辑器视口相机的读写与轻量目标解析，不涉及 PIE/VR 状态切换、截图异步回调或复杂生命周期控制，适合下沉到本地 Python。
+  - `take_screenshot`
+    - 暂继续保留为 `C++ 主实现`。
+    - 原因是当前稳定链路依赖活动视口 `ReadPixels(...)` 同步读回与 PNG 写盘；UE5.7 Python 虽然暴露了 `AutomationLibrary` 截图接口，但更偏自动化测试/异步回调，暂不适合直接替换现有同步文件输出契约。
+
+### 2026-04-03 第二十批：Actor 属性写入与 Blueprint Actor 生成
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `set_actor_property`
+  - `spawn_blueprint_actor`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧继续复用 `ActorEditHelper`，统一处理编辑器世界内 Actor 查找、属性类型转换、Blueprint 资产解析、实例生成与结果序列化。
+- 本轮补充判断：
+  - `set_actor_property`
+    - 该命令本质上是对单个编辑器 Actor 做反射式属性写入，链路短，失败边界清晰。
+    - UE5.7 Python 已稳定暴露 `get_editor_property(...)` / `set_editor_property(...)`，并且可以基于当前属性值推断常见布尔、数字、字符串、Name 与枚举的转换策略，适合下沉到本地 Python。
+  - `spawn_blueprint_actor`
+  - 该命令本质上仍是“解析 Blueprint 资产 -> 取 GeneratedClass -> 生成关卡实例 -> 命名/缩放初始化”的编辑器脚本流程。
+  - UE5.7 Python 已稳定暴露 `EditorAssetLibrary.load_asset(...)`、Blueprint `generated_class` 与 `EditorActorSubsystem.spawn_actor_from_class(...)`，足以保留现有契约并补一个更稳的完整资产路径入口，因此适合继续保留为 `本地Python 主实现`。
+
+### 2026-04-03 第二十一批：Actor 挂接与分离
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `attach_actor`
+  - `detach_actor`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧继续复用 `ActorQueryHelper`，统一处理子/父 Actor 解析、挂接规则切换、分离规则切换与结果序列化。
+- 本轮补充判断：
+  - `attach_actor`
+    - UE5.7 Python 已稳定暴露 `Actor.attach_to_actor(...)`，并直接接受 `AttachmentRule` 与 `socket_name`，足以覆盖当前 `keep_world_transform` 契约。
+    - 该命令本质上是编辑器对象查找 + RootComponent 挂接，不涉及复杂生命周期或事务桥接，适合下沉到本地 Python。
+  - `detach_actor`
+    - UE5.7 Python 已稳定暴露 `Actor.detach_from_actor(...)` 与 `DetachmentRule`，可以直接复刻当前保留世界变换/相对变换两种分离语义。
+    - 失败边界清晰，和现有 Actor 查找/结果拼装逻辑完全一致，适合继续保留为 `本地Python 主实现`。
+- 本轮补充增强：
+  - `Plugins/UnrealMCP/MCPServer/tools/editor_tools.py` 已同步补齐 `attach_actor` 的 `actor_path` / `parent_actor_path`，以及 `detach_actor` 的 `actor_path` 参数，避免工具层遗漏插件实际支持的字段。
+
+### 2026-04-03 第二十二批：Actor 标签与文件夹路径
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `set_actor_tags`
+  - `set_actor_folder_path`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧继续复用 `ActorEditHelper`，统一处理编辑器世界内 Actor 解析、标签数组覆写、文件夹路径写入与结果序列化。
+- 本轮补充判断：
+  - `set_actor_tags`
+    - 该命令本质上是对编辑器 Actor 的 `Tags` 数组做一次覆盖写入，失败边界清晰，验证也可以直接从 Actor 摘要回读。
+    - UE5.7 Python 已稳定暴露 `Actor.tags`，并支持 `unreal.Name(...)` 形式写入，适合下沉到本地 Python。
+  - `set_actor_folder_path`
+    - 该命令本质上是对单个 Actor 调用 `SetFolderPath(...)` 的轻量编辑器写操作，不涉及复杂事务或运行态状态机。
+    - UE5.7 Python 已稳定暴露 `Actor.set_folder_path(...)` 与 `Actor.get_folder_path()`，可以保留当前工具契约并稳定回读结果，适合继续保留为 `本地Python 主实现`。
+
+### 2026-04-03 第二十三批：Editor Utility 运行
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `run_editor_utility_widget`
+  - `run_editor_utility_blueprint`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧新增 `EditorUtilityCommandHelper`，负责 Editor Utility 资产解析、类型校验、标签页注册、`Run` 入口触发与结果序列化。
+- 本轮补充判断：
+  - `run_editor_utility_widget`
+    - UE5.7 Python 已稳定暴露 `EditorUtilitySubsystem.spawn_and_register_tab_and_get_id(...)` 与 `spawn_and_register_tab_with_id(...)`。
+    - 该命令本质上是编辑器资产解析 + 标签页注册，失败边界清晰，适合下沉到本地 Python。
+  - `run_editor_utility_blueprint`
+    - UE5.7 Python 已稳定暴露 `EditorUtilitySubsystem.can_run(...)` 与 `try_run(...)`，足以覆盖当前 `Run` 入口校验与执行流程。
+    - 该命令不涉及 PIE/VR 状态切换，也不依赖复杂生命周期桥接，适合继续保留为 `本地Python 主实现`。
+- 本轮补充结论：
+  - `get_viewport_camera`
+    - 暂继续保留为 `C++ 主实现`。
+    - 原因是 UE5.7 Python 虽已稳定暴露 `UnrealEditorSubsystem.get_level_viewport_camera_info(...)`，但当前公开契约还包含 `fov`、`view_mode`、`view_mode_index`、`is_perspective`、`is_realtime`、`viewport_type`、`viewport_size` 等活动视口细节；这些字段暂未发现同等稳定、低风险的 Python 读取路径。
+    - 按“优先最稳定、最短链路、最容易验证”的规则，不应为了迁移而削弱现有返回结构。
+
+### 2026-04-03 第二十四批：Actor 可见性与 Mobility
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `set_actor_visibility`
+  - `set_actor_mobility`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧继续复用 `ActorEditHelper`，统一处理编辑器 Actor 解析、可见性状态写入、根组件 Mobility 写入与结果序列化。
+- 本轮补充判断：
+  - `set_actor_visibility`
+    - 该命令本质上是对单个编辑器 Actor 做可见性状态切换，不涉及复杂生命周期或运行态状态机。
+    - UE5.7 Python 已稳定暴露 `set_actor_hidden_in_game(...)` 与 `set_is_temporarily_hidden_in_editor(...)`，适合在本地 Python 内同时收敛运行时隐藏与编辑器临时隐藏语义。
+  - `set_actor_mobility`
+    - 该命令本质上是对根 `SceneComponent` 的 `mobility` 枚举做一次反射式写入。
+    - UE5.7 Python 已稳定暴露 `SceneComponent` 的 `mobility` 编辑器属性与 `ComponentMobility` 枚举，失败边界清晰，适合继续保留为 `本地Python 主实现`。
+  - `select_actor`
+    - 仍继续保留为 `C++ 主实现`。
+    - 原因不变：现有契约依赖 `notify`、`select_even_if_hidden` 语义，纯 Python 仍不能稳定等价覆盖。
+
+### 2026-04-04 第二十八批：Actor 选中桥接
+
+- 已调整为 `Python + C++桥接`：
+  - `select_actor`
+- 当前实现形态：
+  - 本地 Python 侧新增选择前解析命令，统一复用现有 `ActorQueryHelper` 的 `world_type` 解析与 Actor 查找逻辑。
+  - C++ 侧保留最终 `GEditor->SelectActor(...)` 调用，继续负责 `replace_selection`、`notify`、`select_even_if_hidden` 语义。
+- 本轮补充判断：
+  - `select_actor`
+    - 该命令的“找谁”部分适合下沉到本地 Python，因为现有 Actor 查询和世界解析已经在 Python 侧稳定收敛。
+    - 但真正的编辑器选择动作仍依赖 `GEditor->SelectActor(...)`，而 UE5.7 Python 暂未稳定覆盖同等参数语义，因此更适合做成 `Python + C++桥接`，而不是纯 Python 或继续全部留在 C++。
+
+### 2026-04-03 第二十五批：Actor 多条件过滤查询
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `find_actors`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧继续复用 `ActorQueryHelper`，统一处理 `world_type` 解析、Actor 枚举、多条件过滤、排序与结果序列化。
+- 本轮补充判断：
+  - `find_actors`
+    - 该命令本质上仍是编辑器世界中的只读查询，不涉及 PIE/VR 状态切换、事务系统或对象生命周期写操作。
+    - UE5.7 Python 已稳定暴露 Actor 名称、类名、标签、路径、文件夹路径等查询入口，适合下沉到本地 Python。
+    - DataLayer 过滤当前按 `Actor.get_data_layer_assets(...)` 可用性做受控支持；若当前 Python API 不可用，则直接报错，不伪装为“无结果”。
+  - 返回结构继续沿用 `get_actors_in_level` / `find_actors_by_name` 的归一化列表格式，并新增 `filters` 回显实际应用的过滤条件与排序方式。
+
+### 2026-04-04 第二十六批：按类路径生成 Actor
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `spawn_actor_from_class`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧继续复用 `ActorEditHelper`，统一处理编辑器世界解析、类路径解析、Actor 命名、防重名检查、实例生成与结果序列化。
+- 本轮补充判断：
+  - `spawn_actor_from_class`
+    - 该命令本质上仍是编辑器内“解析类引用 -> 生成 Actor -> 回填名称/缩放”的轻量生成流程。
+    - UE5.7 Python 已稳定暴露 `unreal.load_class(...)`、Blueprint `generated_class` 与 `EditorActorSubsystem.spawn_actor_from_class(...)`，足以覆盖原生类路径和 Blueprint 路径两种常见输入。
+    - 由于 `EditorActorSubsystem` 当前稳定工作在编辑器世界，本轮先明确只支持 `editor` 世界，不为了扩展 `pie` 语义而引入不稳定桥接。
+
+### 2026-04-04 第二十七批：WorldSettings 查询与写入
+
+- 已迁移到 `Plugins/UnrealMCP/Content/Python/commands/editor/editor_commands.py`：
+  - `get_world_settings`
+  - `set_world_settings`
+- 当前实现形态：
+  - C++ 侧只保留 `ExecuteLocalPythonCommand(...)` 薄分发。
+  - 本地 Python 侧新增 `WorldSettingsCommandHelper`，统一处理编辑器世界解析、`WorldSettings` 属性读取、反射式类型转换与批量写入。
+- 本轮补充判断：
+  - `get_world_settings`
+    - 该命令本质上是对当前编辑器 World 的只读反射查询。
+    - UE5.7 Python 已稳定暴露 `UnrealEditorSubsystem.get_editor_world()` 与 `World.get_world_settings()`，适合直接下沉到本地 Python。
+  - `set_world_settings`
+    - 该命令主要是对 `WorldSettings` 做轻量属性写入，不涉及 PIE/VR 状态切换、GC 或复杂事务编排。
+    - 按“优先最稳定、最短链路、最容易验证”的规则，更适合做成本地 Python 主实现。
+- 当前约束：
+  - 两条命令都只支持 `editor` 世界。
+  - `set_world_settings` 当前稳定覆盖布尔、整数、浮点、字符串、`Name`、枚举、`Vector`、`Rotator`、`LinearColor`，以及通过对象路径解析的类/资源引用。
+
 ## 规划分层
 
 ### A. 优先评估为本地 Python 实现
@@ -219,29 +534,29 @@
 - `spawn_actor`
 - `delete_actor`
 - `set_actor_transform`
-- `set_actor_property`
+- `set_actor_property`（已完成）
 - `get_actor_properties`
 - `get_actor_components`
 - `get_scene_components`
 - `focus_viewport`
 - `take_screenshot`
-- `spawn_blueprint_actor`
+- `spawn_blueprint_actor`（已完成）
 - `duplicate_actor`
-- `select_actor`
+- `select_actor`（已完成，Python+C++桥接）
 - `get_selected_actors`
-- `find_actors`
-- `set_actor_tags`
-- `set_actor_folder_path`
-- `set_actor_visibility`
-- `set_actor_mobility`
-- `attach_actor`
-- `detach_actor`
+- `find_actors`（已完成）
+- `set_actor_tags`（已完成）
+- `set_actor_folder_path`（已完成）
+- `set_actor_visibility`（已完成）
+- `set_actor_mobility`（已完成）
+- `attach_actor`（已完成）
+- `detach_actor`（已完成）
 - `add_component_to_actor`
 - `remove_component_from_actor`
-- `spawn_actor_from_class`
+- `spawn_actor_from_class`（已完成）
 - `set_actors_transform`
-- `get_world_settings`
-- `set_world_settings`
+- `get_world_settings`（已完成）
+- `set_world_settings`（已完成）
 - `line_trace`
 - `box_trace`
 - `sphere_trace`
@@ -394,8 +709,8 @@
 - `open_asset_editor`
 - `close_asset_editor`
 - `execute_console_command`
-- `run_editor_utility_widget`
-- `run_editor_utility_blueprint`
+- `run_editor_utility_widget`（已完成）
+- `run_editor_utility_blueprint`（已完成）
 - `get_output_log`
 - `clear_output_log`
 - `get_message_log`
@@ -425,10 +740,10 @@
 - `compile_material`
 - `create_material_function`
 - `create_render_target`
-- `capture_scene_to_render_target`
-- `set_post_process_settings`
-- `create_light`
-- `set_light_properties`
+- `capture_scene_to_render_target`（已完成）
+- `set_post_process_settings`（已完成）
+- `create_light`（已完成）
+- `set_light_properties`（已完成）
 
 ## 9. 骨骼 / 动画 / 角色
 

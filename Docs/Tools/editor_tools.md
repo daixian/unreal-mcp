@@ -13,8 +13,8 @@
 | --- | --- | --- |
 | `make_directory` | `directory_path` | 在 Content Browser 中创建目录。路径通常应以 `/Game` 开头。 |
 | `duplicate_asset` | `source_asset_path`、`destination_asset_path`、`overwrite=False` | 复制一个资产到新路径。 |
-| `load_level` | `level_path` | 按内容路径加载关卡。 |
-| `save_current_level` | 无 | 保存当前编辑器关卡。 |
+| `load_level` | `level_path` | 按内容路径加载关卡（本地Python）。 |
+| `save_current_level` | 无 | 保存当前编辑器关卡（本地Python）。 |
 | `start_pie` | `simulate=False` | 请求启动 PIE。返回 `already_playing`、`play_world_available` 等状态字段。 |
 | `start_vr_preview` | 无 | 请求启动 VR Preview。返回 `request_queued`、`is_vr_preview` 等状态字段。 |
 | `start_standalone_game` | `map_override=""`、`additional_command_line_parameters=""` | 请求以本机新进程启动 Standalone Game。 |
@@ -23,11 +23,15 @@
 | `start_live_coding` | `show_console=True` | 启用当前编辑器会话的 Live Coding。 |
 | `compile_live_coding` | `wait_for_completion=False`、`show_console=True` | 触发 Live Coding 编译。 |
 | `get_live_coding_state` | 无 | 查询 Live Coding 当前状态。 |
-| `get_editor_selection` | `include_components=False`、`detailed_components=True`、`include_tags=False` | 读取当前编辑器中同时选中的 Actor 与资产。 |
-| `focus_viewport` | `target=None`、`location=None`、`distance=1000.0`、`orientation=None` | 聚焦到指定 Actor 或坐标。`target` 与 `location` 至少要传一个。 |
+| `get_selected_actors` | `include_components=False`、`detailed_components=True` | 读取当前编辑器中选中的 Actor 列表（本地Python）。 |
+| `get_editor_selection` | `include_components=False`、`detailed_components=True`、`include_tags=False` | 读取当前编辑器中同时选中的 Actor 与资产（本地Python）。 |
+| `focus_viewport` | `target=None`、`location=None`、`distance=1000.0`、`orientation=None` | 聚焦到指定 Actor 或坐标（本地Python）。`target` 与 `location` 至少要传一个。 |
 | `take_screenshot` | `filepath` | 对当前激活视口截图并写入文件。若路径不带 `.png`，Unreal 侧会自动补齐。 |
 | `take_highres_screenshot` | `filepath`、`resolution=None`、`resolution_multiplier=1.0`、`capture_hdr=False` | 生成一张高分辨率截图；默认 PNG 路径会同步落盘，HDR 仍走异步写盘。 |
 | `capture_viewport_sequence` | `output_dir`、`frame_count`、`interval_seconds=0.0`、`base_filename="ViewportSequence"` | 按序列帧方式捕获当前活动视口，可选高分辨率模式。 |
+| `capture_scene_to_render_target` | `render_target_asset_path`、可选 `name/actor_path`、`location`、`rotation`、`capture_source` | 使用现有或临时 `SceneCapture2D` 把场景捕捉到 `TextureRenderTarget2D`（本地Python）。 |
+| `open_asset_editor` | `asset_path` | 打开任意资产编辑器标签（本地Python）。 |
+| `close_asset_editor` | `asset_path` | 关闭指定资产的编辑器标签（本地Python）。 |
 | `run_editor_utility_widget` | `asset_path`、`tab_id=""` | 运行 Editor Utility Widget，并打开对应编辑器标签页。 |
 | `run_editor_utility_blueprint` | `asset_path` | 运行 Editor Utility Blueprint 的 `Run` 入口。 |
 | `set_viewport_mode` | `view_mode`、`apply_to_all=False` | 设置活动关卡视口或全部关卡视口的显示模式。 |
@@ -79,6 +83,31 @@
 - `planned_filepaths` 会返回预期写出的所有帧文件路径，便于外部轮询落盘完成情况。
 - 当 `use_high_res=True` 时，每一帧都走高分辨率截图路径；否则走普通截图路径，`show_ui` 仅在普通截图模式下生效。
 
+### `capture_scene_to_render_target`
+
+当前对外公开参数：
+
+- `render_target_asset_path`
+- `name`
+- `actor_path`
+- `world_type`
+- `location`
+- `rotation`
+- `capture_source`
+- `fov_angle`
+- `post_process_blend_weight`
+- `capture_every_frame`
+- `capture_on_movement`
+- `primitive_render_mode`
+
+说明：
+
+- `render_target_asset_path` 必须指向一个已存在的 `TextureRenderTarget2D`。
+- 传 `name` 或 `actor_path` 时，会复用现有 `SceneCapture2D` Actor。
+- 未传 `name/actor_path` 时，工具会基于当前视口相机或显式 `location/rotation` 临时生成一个 `SceneCapture2D`，捕捉后自动销毁。
+- `capture_source` 当前支持 Unreal 枚举名，例如 `SCS_FINAL_COLOR_LDR`、`SCS_FINAL_COLOR_HDR`、`SCS_BASE_COLOR`、`SCS_SCENE_DEPTH`。
+- 当前命令只支持 `editor` 世界，不建议用于 PIE/VR 运行态。
+
 ### `compile_live_coding`
 
 当 `wait_for_completion=True` 时：
@@ -101,14 +130,16 @@
 - `start_vr_preview`：`already_playing`、`request_queued`、`is_vr_preview`
 - `start_standalone_game`：`request_queued`、`play_session_destination`、`is_standalone_game`
 - `get_play_state`：`is_playing`、`is_play_session_queued`、`is_vr_preview`、`is_standalone_game`、`play_session_destination`、`play_mode`
+- `get_selected_actors`：`actors`、`actor_count`
 - `get_editor_selection`：`actors`、`assets`、`actor_count`、`asset_count`、`selection_count`
 - `start_live_coding`：`show_console` 以及 Unreal 侧当前 Live Coding 状态字段
 - `compile_live_coding`：`compile_result`、`wait_for_completion`、`show_console`
 - `take_screenshot`：`filepath`
 - `take_highres_screenshot`：`request_queued`、`written`、`filepath`、`resolution`、`resolution_multiplier`
 - `capture_viewport_sequence`：`request_queued`、`sequence_id`、`planned_filepaths`、`frame_count`
-- `run_editor_utility_widget`：`tab_id`、`widget_name`、`widget_class`
-- `run_editor_utility_blueprint`：`generated_class`
+- `capture_scene_to_render_target`：`render_target_asset_path`、`capture_actor_path`、`capture_component_path`、`used_temporary_actor`
+- `run_editor_utility_widget`：`tab_id`、`widget_name`、`widget_class`、`implementation`
+- `run_editor_utility_blueprint`：`generated_class`、`implementation`
 - `set_viewport_mode`：`view_mode`、`view_mode_index`、`updated_viewport_count`
 - `get_viewport_camera`：`location`、`rotation`、`fov`、`view_mode`、`viewport_type`
 
@@ -197,6 +228,19 @@
     "base_filename": "VRPreview",
     "use_high_res": true,
     "resolution_multiplier": 1.5
+  }
+}
+```
+
+### 把场景捕捉到已有 RenderTarget
+
+```json
+{
+  "tool": "capture_scene_to_render_target",
+  "args": {
+    "render_target_asset_path": "/Game/MCPTemp/RT_CodexCapture",
+    "capture_source": "SCS_FINAL_COLOR_LDR",
+    "fov_angle": 70.0
   }
 }
 ```
