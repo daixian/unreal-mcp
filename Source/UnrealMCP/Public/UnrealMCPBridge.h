@@ -80,6 +80,8 @@ private:
 	TSharedPtr<FSocket> ListenerSocket;
 	/** @brief 当前连接套接字（保留字段，后续可用于连接级控制）。 */
 	TSharedPtr<FSocket> ConnectionSocket;
+	/** @brief MCP 服务线程执行体。 */
+	FMCPServerRunnable* ServerRunnable;
 	/** @brief 承载 socket 收发循环的后台线程。 */
 	FRunnableThread* ServerThread;
 

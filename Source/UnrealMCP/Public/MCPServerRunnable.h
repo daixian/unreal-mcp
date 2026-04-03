@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "HAL/Runnable.h"
+#include "HAL/ThreadSafeBool.h"
 #include "Sockets.h"
 #include "Interfaces/IPv4/IPv4Address.h"
 
@@ -70,5 +71,5 @@ private:
 	/** @brief 当前活跃客户端套接字。 */
 	TSharedPtr<FSocket> ClientSocket;
 	/** @brief 线程运行标记，false 时退出循环。 */
-	bool bRunning;
+	FThreadSafeBool bRunning;
 };

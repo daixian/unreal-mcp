@@ -67,6 +67,36 @@
 #define MCP_SERVER_HOST "127.0.0.1"
 #define MCP_SERVER_PORT 55557
 
+class FUnrealMCPBridgeSocketDestroyer
+{
+public:
+    void operator()(FSocket* Socket) const
+    {
+        if (!Socket)
+        {
+            return;
+        }
+
+        if (ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
+        {
+            SocketSubsystem->DestroySocket(Socket);
+            return;
+        }
+
+        delete Socket;
+    }
+};
+
+static TSharedPtr<FSocket> MakeUnrealMCPBridgeSocketShareable(FSocket* Socket)
+{
+    if (!Socket)
+    {
+        return TSharedPtr<FSocket>();
+    }
+
+    return MakeShareable(Socket, FUnrealMCPBridgeSocketDestroyer());
+}
+
 /**
  * @brief 构造函数，初始化各类命令处理器。
  */
@@ -78,6 +108,11 @@ UUnrealMCPBridge::UUnrealMCPBridge()
     BlueprintNodeCommands = MakeShared<FUnrealMCPBlueprintNodeCommands>();
     ProjectCommands = MakeShared<FUnrealMCPProjectCommands>();
     UMGCommands = MakeShared<FUnrealMCPUMGCommands>();
+    bIsRunning = false;
+    ListenerSocket = nullptr;
+    ConnectionSocket = nullptr;
+    ServerRunnable = nullptr;
+    ServerThread = nullptr;
 }
 
 /**
@@ -104,6 +139,7 @@ void UUnrealMCPBridge::Initialize(FSubsystemCollectionBase& Collection)
     bIsRunning = false;
     ListenerSocket = nullptr;
     ConnectionSocket = nullptr;
+    ServerRunnable = nullptr;
     ServerThread = nullptr;
     Port = MCP_SERVER_PORT;
     FIPv4Address::Parse(MCP_SERVER_HOST, ServerAddress);
@@ -148,7 +184,8 @@ void UUnrealMCPBridge::StartServer()
     }
 
     // Create listener socket
-    TSharedPtr<FSocket> NewListenerSocket = MakeShareable(SocketSubsystem->CreateSocket(NAME_Stream, TEXT("UnrealMCPListener"), false));
+    TSharedPtr<FSocket> NewListenerSocket = MakeUnrealMCPBridgeSocketShareable(
+        SocketSubsystem->CreateSocket(NAME_Stream, TEXT("UnrealMCPListener"), false));
     if (!NewListenerSocket.IsValid())
     {
         UE_LOG(LogTemp, Error, TEXT("UnrealMCPBridge: Failed to create listener socket"));
@@ -179,8 +216,9 @@ void UUnrealMCPBridge::StartServer()
     UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Server started on %s:%d"), *ServerAddress.ToString(), Port);
 
     // Start server thread
+    ServerRunnable = new FMCPServerRunnable(this, ListenerSocket);
     ServerThread = FRunnableThread::Create(
-        new FMCPServerRunnable(this, ListenerSocket),
+        ServerRunnable,
         TEXT("UnrealMCPServerThread"),
         0, TPri_Normal
     );
@@ -188,6 +226,8 @@ void UUnrealMCPBridge::StartServer()
     if (!ServerThread)
     {
         UE_LOG(LogTemp, Error, TEXT("UnrealMCPBridge: Failed to create server thread"));
+        delete ServerRunnable;
+        ServerRunnable = nullptr;
         StopServer();
         return;
     }
@@ -205,25 +245,34 @@ void UUnrealMCPBridge::StopServer()
 
     bIsRunning = false;
 
-    // Clean up thread
-    if (ServerThread)
+    if (ServerRunnable)
     {
-        ServerThread->Kill(true);
-        delete ServerThread;
-        ServerThread = nullptr;
+        ServerRunnable->Stop();
     }
 
-    // Close sockets
     if (ConnectionSocket.IsValid())
     {
-        ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ConnectionSocket.Get());
+        ConnectionSocket->Close();
         ConnectionSocket.Reset();
     }
 
     if (ListenerSocket.IsValid())
     {
-        ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ListenerSocket.Get());
+        ListenerSocket->Close();
         ListenerSocket.Reset();
+    }
+
+    if (ServerThread)
+    {
+        ServerThread->WaitForCompletion();
+        delete ServerThread;
+        ServerThread = nullptr;
+    }
+
+    if (ServerRunnable)
+    {
+        delete ServerRunnable;
+        ServerRunnable = nullptr;
     }
 
     UE_LOG(LogTemp, Display, TEXT("UnrealMCPBridge: Server stopped"));
@@ -426,13 +475,20 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
             else
             {
                 ResponseJson->SetStringField(TEXT("status"), TEXT("error"));
-                ResponseJson->SetStringField(TEXT("error"), FString::Printf(TEXT("Unknown command: %s"), *CommandType));
+                ResponseJson->SetStringField(TEXT("error"), FString::Printf(TEXT("未知命令: %s"), *CommandType));
                 
                 FString ResultString;
                 TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&ResultString);
                 FJsonSerializer::Serialize(ResponseJson.ToSharedRef(), Writer);
                 Promise.SetValue(ResultString);
                 return;
+            }
+
+            if (!ResultJson.IsValid())
+            {
+                UE_LOG(LogTemp, Error, TEXT("UnrealMCPBridge: 命令 %s 没有返回有效 JSON 结果"), *CommandType);
+                ResultJson = FUnrealMCPCommonUtils::CreateErrorResponse(
+                    FString::Printf(TEXT("命令 %s 没有返回有效结果"), *CommandType));
             }
             
             // Check if the result contains an error
@@ -464,7 +520,12 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
         catch (const std::exception& e)
         {
             ResponseJson->SetStringField(TEXT("status"), TEXT("error"));
-            ResponseJson->SetStringField(TEXT("error"), UTF8_TO_TCHAR(e.what()));
+            ResponseJson->SetStringField(TEXT("error"), FString::Printf(TEXT("执行命令时发生异常: %s"), UTF8_TO_TCHAR(e.what())));
+        }
+        catch (...)
+        {
+            ResponseJson->SetStringField(TEXT("status"), TEXT("error"));
+            ResponseJson->SetStringField(TEXT("error"), TEXT("执行命令时发生未知异常"));
         }
         
         FString ResultString;

@@ -4,6 +4,7 @@
  */
 #include "MCPServerRunnable.h"
 #include "UnrealMCPBridge.h"
+#include "Commands/UnrealMCPCommonUtils.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
 #include "Interfaces/IPv4/IPv4Address.h"
@@ -21,6 +22,82 @@ constexpr int32 MCPReceiveBufferSize = 8192;
 constexpr double MCPClientReadWaitMilliseconds = 100.0;
 /** @brief 空闲客户端最大保活时长，超过后主动断开。 */
 constexpr double MCPClientIdleTimeoutSeconds = 2.0;
+
+class FUnrealMCPServerSocketDestroyer
+{
+public:
+    void operator()(FSocket* Socket) const
+    {
+        if (!Socket)
+        {
+            return;
+        }
+
+        if (ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
+        {
+            SocketSubsystem->DestroySocket(Socket);
+            return;
+        }
+
+        delete Socket;
+    }
+};
+
+enum class EMCPJsonScanResult : uint8
+{
+    NeedMoreData,
+    FoundMessage,
+    InvalidData,
+};
+
+static TSharedPtr<FSocket> MakeUnrealMCPServerSocketShareable(FSocket* Socket)
+{
+    if (!Socket)
+    {
+        return TSharedPtr<FSocket>();
+    }
+
+    return MakeShareable(Socket, FUnrealMCPServerSocketDestroyer());
+}
+
+static void CloseSocketSafely(const TSharedPtr<FSocket>& Socket)
+{
+    if (!Socket.IsValid())
+    {
+        return;
+    }
+
+    Socket->Shutdown(ESocketShutdownMode::ReadWrite);
+    Socket->Close();
+}
+
+static FString SerializeJsonObjectToString(const TSharedPtr<FJsonObject>& JsonObject)
+{
+    if (!JsonObject.IsValid())
+    {
+        return TEXT("{\"status\":\"error\",\"error\":\"响应对象无效\"}");
+    }
+
+    FString ResultString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&ResultString);
+    FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
+    return ResultString;
+}
+
+static FString BuildErrorResponseString(const FString& ErrorMessage)
+{
+    TSharedPtr<FJsonObject> ResponseObject = MakeShared<FJsonObject>();
+    ResponseObject->SetStringField(TEXT("status"), TEXT("error"));
+    ResponseObject->SetStringField(TEXT("error"), ErrorMessage);
+    return SerializeJsonObjectToString(ResponseObject);
+}
+
+static bool SendUtf8Message(const TSharedPtr<FSocket>& Socket, const FString& Message);
+
+static bool SendErrorResponse(const TSharedPtr<FSocket>& Socket, const FString& ErrorMessage)
+{
+    return SendUtf8Message(Socket, BuildErrorResponseString(ErrorMessage));
+}
 
 static bool SendUtf8Message(const TSharedPtr<FSocket>& Socket, const FString& Message)
 {
@@ -46,12 +123,18 @@ static bool SendUtf8Message(const TSharedPtr<FSocket>& Socket, const FString& Me
         TotalSent += BytesSent;
     }
 
-    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 响应发送完成，字节数: %d"), TotalSent);
+    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 响应发送完成，字节数=%d"), TotalSent);
     return true;
 }
 
-static bool TryFindNextJsonMessageEnd(const TArray<uint8>& Buffer, int32& OutMessageEndExclusive)
+static EMCPJsonScanResult TryFindNextJsonMessageEnd(
+    const TArray<uint8>& Buffer,
+    int32& OutMessageEndExclusive,
+    uint8& OutInvalidStartByte)
 {
+    OutMessageEndExclusive = INDEX_NONE;
+    OutInvalidStartByte = 0;
+
     bool bStarted = false;
     bool bInsideString = false;
     bool bEscaping = false;
@@ -74,8 +157,8 @@ static bool TryFindNextJsonMessageEnd(const TArray<uint8>& Buffer, int32& OutMes
             }
             else
             {
-                UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: 收到非法 JSON 起始字节: 0x%02X"), Byte);
-                return false;
+                OutInvalidStartByte = Byte;
+                return EMCPJsonScanResult::InvalidData;
             }
 
             continue;
@@ -119,12 +202,12 @@ static bool TryFindNextJsonMessageEnd(const TArray<uint8>& Buffer, int32& OutMes
             if (ObjectDepth == 0)
             {
                 OutMessageEndExclusive = Index + 1;
-                return true;
+                return EMCPJsonScanResult::FoundMessage;
             }
         }
     }
 
-    return false;
+    return EMCPJsonScanResult::NeedMoreData;
 }
 
 static FString Utf8BytesToString(const TArray<uint8>& Bytes)
@@ -174,43 +257,45 @@ bool FMCPServerRunnable::Init()
  */
 uint32 FMCPServerRunnable::Run()
 {
-    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Server thread starting..."));
+    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 服务线程已启动"));
     
     while (bRunning)
     {
-        // UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Waiting for client connection..."));
-        
         bool bPending = false;
+        if (!ListenerSocket.IsValid())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: 监听 socket 已失效，结束服务线程"));
+            break;
+        }
+
         if (ListenerSocket->HasPendingConnection(bPending) && bPending)
         {
-            UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Client connection pending, accepting..."));
+            UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 检测到待处理客户端连接，开始 Accept"));
             
-            ClientSocket = MakeShareable(ListenerSocket->Accept(TEXT("MCPClient")));
+            ClientSocket = MakeUnrealMCPServerSocketShareable(ListenerSocket->Accept(TEXT("MCPClient")));
             if (ClientSocket.IsValid())
             {
-                UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Client connection accepted"));
+                UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 客户端连接已接受"));
                 
-                // Set socket options to improve connection stability
                 ClientSocket->SetNoDelay(true);
                 ClientSocket->SetNonBlocking(false);
                 int32 SocketBufferSize = 65536;  // 64KB buffer
                 ClientSocket->SetSendBufferSize(SocketBufferSize, SocketBufferSize);
                 ClientSocket->SetReceiveBufferSize(SocketBufferSize, SocketBufferSize);
                 HandleClientConnection(ClientSocket);
-                ClientSocket->Close();
+                CloseSocketSafely(ClientSocket);
                 ClientSocket.Reset();
             }
             else
             {
-                UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: Failed to accept client connection"));
+                UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: Accept 客户端连接失败"));
             }
         }
         
-        // Small sleep to prevent tight loop
         FPlatformProcess::Sleep(0.1f);
     }
     
-    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Server thread stopping"));
+    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 服务线程即将退出"));
     return 0;
 }
 
@@ -220,6 +305,8 @@ uint32 FMCPServerRunnable::Run()
 void FMCPServerRunnable::Stop()
 {
     bRunning = false;
+    CloseSocketSafely(ClientSocket);
+    CloseSocketSafely(ListenerSocket);
 }
 
 /**
@@ -237,7 +324,7 @@ void FMCPServerRunnable::HandleClientConnection(TSharedPtr<FSocket> InClientSock
 {
     if (!InClientSocket.IsValid())
     {
-        UE_LOG(LogTemp, Error, TEXT("MCPServerRunnable: Invalid client socket passed to HandleClientConnection"));
+        UE_LOG(LogTemp, Error, TEXT("MCPServerRunnable: HandleClientConnection 收到无效客户端 socket"));
         return;
     }
 
@@ -267,11 +354,24 @@ void FMCPServerRunnable::HandleClientConnection(TSharedPtr<FSocket> InClientSock
             const double IdleDurationSeconds = FPlatformTime::Seconds() - LastReceiveTimeSeconds;
             if (IdleDurationSeconds >= MCPClientIdleTimeoutSeconds)
             {
-                UE_LOG(
-                    LogTemp,
-                    Warning,
-                    TEXT("MCPServerRunnable: 客户端在 %.2f 秒内没有发送任何数据，主动断开空闲连接"),
-                    IdleDurationSeconds);
+                if (PendingBytes.Num() > 0)
+                {
+                    UE_LOG(
+                        LogTemp,
+                        Warning,
+                        TEXT("MCPServerRunnable: 客户端在 %.2f 秒内没有补齐完整 JSON，返回错误并断开。缓冲区字节数=%d"),
+                        IdleDurationSeconds,
+                        PendingBytes.Num());
+                    SendErrorResponse(InClientSocket, TEXT("MCP 消息在超时前没有组成完整 JSON 对象"));
+                }
+                else
+                {
+                    UE_LOG(
+                        LogTemp,
+                        Warning,
+                        TEXT("MCPServerRunnable: 客户端在 %.2f 秒内没有发送任何数据，主动断开空闲连接"),
+                        IdleDurationSeconds);
+                }
                 break;
             }
 
@@ -287,9 +387,32 @@ void FMCPServerRunnable::HandleClientConnection(TSharedPtr<FSocket> InClientSock
             PendingBytes.Append(Buffer, BytesRead);
             UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 本次收到 %d 字节，累计缓冲区 %d 字节"), BytesRead, PendingBytes.Num());
 
-            int32 MessageEndExclusive = 0;
-            while (TryFindNextJsonMessageEnd(PendingBytes, MessageEndExclusive))
+            while (PendingBytes.Num() > 0)
             {
+                int32 MessageEndExclusive = 0;
+                uint8 InvalidStartByte = 0;
+                const EMCPJsonScanResult ScanResult = TryFindNextJsonMessageEnd(
+                    PendingBytes,
+                    MessageEndExclusive,
+                    InvalidStartByte);
+
+                if (ScanResult == EMCPJsonScanResult::NeedMoreData)
+                {
+                    break;
+                }
+
+                if (ScanResult == EMCPJsonScanResult::InvalidData)
+                {
+                    UE_LOG(
+                        LogTemp,
+                        Warning,
+                        TEXT("MCPServerRunnable: 收到非法 JSON 起始字节 0x%02X，返回协议错误并断开客户端"),
+                        InvalidStartByte);
+                    SendErrorResponse(InClientSocket, TEXT("收到的消息不是合法的 JSON 对象"));
+                    PendingBytes.Reset();
+                    break;
+                }
+
                 TArray<uint8> MessageBytes;
                 MessageBytes.Append(PendingBytes.GetData(), MessageEndExclusive);
                 const FString MessageText = Utf8BytesToString(MessageBytes).TrimStartAndEnd();
@@ -327,7 +450,14 @@ void FMCPServerRunnable::HandleClientConnection(TSharedPtr<FSocket> InClientSock
  */
 void FMCPServerRunnable::ProcessMessage(TSharedPtr<FSocket> Client, const FString& Message)
 {
-    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Processing message: %s"), *Message);
+    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 开始解析消息，字符数=%d"), Message.Len());
+
+    if (!Bridge)
+    {
+        UE_LOG(LogTemp, Error, TEXT("MCPServerRunnable: Bridge 无效，无法执行命令"));
+        SendErrorResponse(Client, TEXT("MCP Bridge 无效，无法执行命令"));
+        return;
+    }
     
     // Parse message as JSON
     TSharedPtr<FJsonObject> JsonMessage;
@@ -335,7 +465,8 @@ void FMCPServerRunnable::ProcessMessage(TSharedPtr<FSocket> Client, const FStrin
     
     if (!FJsonSerializer::Deserialize(Reader, JsonMessage) || !JsonMessage.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: Failed to parse message as JSON"));
+        UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: 消息不是合法 JSON 对象"));
+        SendErrorResponse(Client, TEXT("MCP 消息不是合法 JSON 对象"));
         return;
     }
     
@@ -346,6 +477,7 @@ void FMCPServerRunnable::ProcessMessage(TSharedPtr<FSocket> Client, const FStrin
     if (!JsonMessage->TryGetStringField(TEXT("type"), CommandType))
     {
         UE_LOG(LogTemp, Warning, TEXT("MCPServerRunnable: 消息缺少 'type' 字段"));
+        SendErrorResponse(Client, TEXT("MCP 消息缺少 type 字段"));
         return;
     }
     
@@ -359,15 +491,20 @@ void FMCPServerRunnable::ProcessMessage(TSharedPtr<FSocket> Client, const FStrin
         }
     }
     
-    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Executing command: %s"), *CommandType);
+    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 开始执行命令 %s"), *CommandType);
     
     // Execute command
     FString Response = Bridge->ExecuteCommand(CommandType, Params);
+    if (Response.IsEmpty())
+    {
+        UE_LOG(LogTemp, Error, TEXT("MCPServerRunnable: 命令 %s 返回了空响应，已改写为错误响应"), *CommandType);
+        Response = BuildErrorResponseString(FString::Printf(TEXT("命令 %s 没有返回有效响应"), *CommandType));
+    }
     
-    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: Sending response: %s"), *Response);
+    UE_LOG(LogTemp, Display, TEXT("MCPServerRunnable: 准备发送命令 %s 的响应，字符数=%d"), *CommandType, Response.Len());
     
     if (!SendUtf8Message(Client, Response))
     {
-        UE_LOG(LogTemp, Error, TEXT("MCPServerRunnable: Failed to send response"));
+        UE_LOG(LogTemp, Error, TEXT("MCPServerRunnable: 发送命令 %s 的响应失败"), *CommandType);
     }
 } 
