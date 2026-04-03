@@ -101,6 +101,34 @@ private:
     TSharedPtr<FJsonObject> HandleSetGameModeDefaultPawn(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 删除 Blueprint 成员变量。
+     * @param [in] Params 删除参数。
+     * @return TSharedPtr<FJsonObject> 删除结果。
+     */
+    TSharedPtr<FJsonObject> HandleDeleteBlueprintVariable(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 设置 Blueprint 成员变量默认值。
+     * @param [in] Params 默认值参数。
+     * @return TSharedPtr<FJsonObject> 设置结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetBlueprintVariableDefault(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 保存 Blueprint 资产。
+     * @param [in] Params 保存参数。
+     * @return TSharedPtr<FJsonObject> 保存结果。
+     */
+    TSharedPtr<FJsonObject> HandleSaveBlueprint(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 打开 Blueprint 编辑器。
+     * @param [in] Params 打开参数。
+     * @return TSharedPtr<FJsonObject> 打开结果。
+     */
+    TSharedPtr<FJsonObject> HandleOpenBlueprintEditor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief Blueprint 组件添加辅助函数。
      * @param [in] BlueprintName Blueprint 名称。
      * @param [in] ComponentType 组件类型。

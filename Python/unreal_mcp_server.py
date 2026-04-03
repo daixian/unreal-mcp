@@ -342,6 +342,7 @@ from tools.blueprint_tools import register_blueprint_tools
 from tools.node_tools import register_blueprint_node_tools
 from tools.project_tools import register_project_tools
 from tools.umg_tools import register_umg_tools
+from tools.meta_tools import register_meta_tools
 
 # Register tools
 register_editor_tools(mcp)
@@ -349,7 +350,8 @@ register_asset_tools(mcp)
 register_blueprint_tools(mcp)
 register_blueprint_node_tools(mcp)
 register_project_tools(mcp)
-register_umg_tools(mcp)  
+register_umg_tools(mcp)
+register_meta_tools(mcp)
 
 @mcp.prompt()
 def info():
@@ -416,6 +418,10 @@ def info():
     - `get_asset_referencers(asset_path="", object_path="", asset_name="", name="")` - Query detailed referencers
     - `get_asset_summary(asset_path="", object_path="", asset_name="", name="")` - Load asset and summarize by type; WidgetBlueprint summaries include detailed widget layout data when available
     - `save_asset(asset_path="", object_path="", asset_name="", name="", only_if_dirty=False)` - Save an asset resolved by path or name
+    - `import_asset(destination_path, filename="", source_files=[], destination_name="", async_import=True)` - Import external files into the Content Browser; currently uses async import to avoid UE5.7 Interchange sync assertions
+    - `export_asset(export_path, asset_path="", asset_paths=[], clean_filenames=True)` - Export one or more assets to an external directory
+    - `reimport_asset(asset_path="", asset_paths=[], ...)` - Reimport existing assets from their recorded source files; currently uses async reimport to avoid UE5.7 Interchange sync assertions
+    - `fixup_redirectors(directory_path="", directory_paths=[], asset_path="", asset_paths=[], ...)` - Fix redirector references; returns idempotent success when none are found
     - `get_blueprint_summary(asset_path="", object_path="", asset_name="", name="")` - Load Blueprint asset and summarize structure; WidgetBlueprint results include `widget_tree`, slot/layout data, `bindings` and `animations`
     
     ## Blueprint Node Management
@@ -434,7 +440,11 @@ def info():
     
     ## Project Tools
     - `create_input_mapping(action_name, key, input_type)` - Create input mappings
-    
+
+    ## Metadata Tools
+    - `list_mcp_tools(group="", name_contains="", include_parameters=False)` - List currently registered UnrealMCP tools
+    - `export_tool_schema(tool_name="", group="")` - Export the current UnrealMCP tool input schemas
+
     ## Best Practices
     
     ### UMG Widget Development

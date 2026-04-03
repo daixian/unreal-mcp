@@ -31,6 +31,55 @@ private:
     TSharedPtr<FJsonObject> HandleConnectBlueprintNodes(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 断开 Blueprint 图节点引脚连接。
+     * @param [in] Params 断开连接参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleDisconnectBlueprintNodes(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 移动 Blueprint 图中的单个节点。
+     * @param [in] Params 节点移动参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleMoveBlueprintNode(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 批量布局 Blueprint 图节点。
+     * @param [in] Params 布局参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleLayoutBlueprintNodes(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 添加 Blueprint 注释节点。
+     * @param [in] Params 注释节点参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddBlueprintCommentNode(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 添加 Blueprint Reroute 节点。
+     * @param [in] Params Reroute 节点参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddBlueprintRerouteNode(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 新建 Blueprint 图。
+     * @param [in] Params 图创建参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateBlueprintGraph(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 删除 Blueprint 图。
+     * @param [in] Params 图删除参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleDeleteBlueprintGraph(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 添加当前 Blueprint 的组件引用节点。
      * @param [in] Params 组件引用参数。
      * @return TSharedPtr<FJsonObject> 执行结果。
@@ -99,6 +148,34 @@ private:
      * @return TSharedPtr<FJsonObject> 执行结果。
      */
     TSharedPtr<FJsonObject> HandleDeleteBlueprintNode(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 复制 Blueprint 节点子图。
+     * @param [in] Params 节点复制参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleDuplicateBlueprintSubgraph(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 将选中节点折叠为函数图。
+     * @param [in] Params 节点折叠参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleCollapseNodesToFunction(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 将选中节点折叠为宏图。
+     * @param [in] Params 节点折叠参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleCollapseNodesToMacro(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 校验 Blueprint 图是否可编译。
+     * @param [in] Params 图校验参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleValidateBlueprintGraph(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 查找 Blueprint 图中的节点。

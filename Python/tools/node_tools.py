@@ -384,6 +384,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
     def find_blueprint_nodes(
         ctx: Context,
         blueprint_name: str,
+        graph_name: str = None,
         node_type = None,
         event_type = None,
         include_details: bool = False
@@ -403,6 +404,8 @@ def register_blueprint_node_tools(mcp: FastMCP):
         
         try:
             params = {"blueprint_name": blueprint_name}
+            if graph_name:
+                params["graph_name"] = graph_name
             if node_type:
                 params["node_type"] = node_type
             if event_type:
@@ -435,6 +438,7 @@ def register_blueprint_node_tools(mcp: FastMCP):
     def spawn_blueprint_node(
         ctx: Context,
         blueprint_name: str,
+        graph_name: str = None,
         node_kind: str = None,
         node_class: str = None,
         function_name: str = None,
@@ -445,7 +449,15 @@ def register_blueprint_node_tools(mcp: FastMCP):
         event_name: str = None,
         class_name: str = None,
         class_path: str = None,
+        struct_name: str = None,
+        struct_path: str = None,
+        enum_name: str = None,
+        enum_path: str = None,
         widget_class: str = None,
+        duration: float = None,
+        then_pin_count: int = None,
+        option_pin_count: int = None,
+        pure: bool = None,
         params = None,
         node_position = None
     ) -> Dict[str, Any]:
@@ -464,7 +476,14 @@ def register_blueprint_node_tools(mcp: FastMCP):
             event_name: Optional event name for event nodes
             class_name: Optional class name used by construct-object style nodes
             class_path: Optional class object path used by construct-object style nodes
+            struct_name: Optional struct name used by make/break struct nodes
+            struct_path: Optional struct path used by make/break struct nodes
+            enum_name: Optional enum name used by switch/select nodes
+            enum_path: Optional enum path used by switch/select nodes
             widget_class: Optional widget class name/path shortcut for create widget nodes
+            then_pin_count: Optional then pin count for sequence nodes
+            option_pin_count: Optional option count for select nodes
+            pure: Optional purity flag for supported nodes such as dynamic cast
             params: Optional input pin default map
             node_position: Optional [X, Y] position in the graph
 
@@ -477,6 +496,8 @@ def register_blueprint_node_tools(mcp: FastMCP):
             command_params = {
                 "blueprint_name": blueprint_name
             }
+            if graph_name is not None:
+                command_params["graph_name"] = graph_name
             if node_kind is not None:
                 command_params["node_kind"] = node_kind
             if node_class is not None:
@@ -497,8 +518,24 @@ def register_blueprint_node_tools(mcp: FastMCP):
                 command_params["class_name"] = class_name
             if class_path is not None:
                 command_params["class_path"] = class_path
+            if struct_name is not None:
+                command_params["struct_name"] = struct_name
+            if struct_path is not None:
+                command_params["struct_path"] = struct_path
+            if enum_name is not None:
+                command_params["enum_name"] = enum_name
+            if enum_path is not None:
+                command_params["enum_path"] = enum_path
             if widget_class is not None:
                 command_params["widget_class"] = widget_class
+            if duration is not None:
+                command_params["duration"] = duration
+            if then_pin_count is not None:
+                command_params["then_pin_count"] = then_pin_count
+            if option_pin_count is not None:
+                command_params["option_pin_count"] = option_pin_count
+            if pure is not None:
+                command_params["pure"] = pure
             if params is not None:
                 command_params["params"] = params
             if node_position is None:
@@ -670,5 +707,648 @@ def register_blueprint_node_tools(mcp: FastMCP):
             error_msg = f"Error deleting blueprint node: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def disconnect_blueprint_nodes(
+        ctx: Context,
+        blueprint_name: str,
+        source_node_id: str,
+        source_pin: str,
+        target_node_id: str = None,
+        target_pin: str = None,
+        graph_name: str = None
+    ) -> Dict[str, Any]:
+        """Disconnect one or all links from a Blueprint node pin."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "source_node_id": source_node_id,
+                "source_pin": source_pin
+            }
+            if target_node_id is not None:
+                params["target_node_id"] = target_node_id
+            if target_pin is not None:
+                params["target_pin"] = target_pin
+            if graph_name is not None:
+                params["graph_name"] = graph_name
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("disconnect_blueprint_nodes", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error disconnecting blueprint nodes: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def move_blueprint_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_id: str,
+        node_position = None,
+        node_delta = None,
+        graph_name: str = None
+    ) -> Dict[str, Any]:
+        """Move a Blueprint node to an absolute position or by delta."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "node_id": node_id
+            }
+            if node_position is not None:
+                params["node_position"] = node_position
+            if node_delta is not None:
+                params["node_delta"] = node_delta
+            if graph_name is not None:
+                params["graph_name"] = graph_name
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("move_blueprint_node", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error moving blueprint node: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def layout_blueprint_nodes(
+        ctx: Context,
+        blueprint_name: str,
+        node_ids = None,
+        graph_name: str = None,
+        layout: str = "horizontal",
+        origin = None,
+        spacing_x: float = 240.0,
+        spacing_y: float = 120.0,
+        columns: int = 4
+    ) -> Dict[str, Any]:
+        """Layout Blueprint nodes in horizontal, vertical, or grid mode."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "layout": layout,
+                "spacing_x": spacing_x,
+                "spacing_y": spacing_y,
+                "columns": columns
+            }
+            if node_ids is not None:
+                params["node_ids"] = node_ids
+            if graph_name is not None:
+                params["graph_name"] = graph_name
+            if origin is not None:
+                params["origin"] = origin
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("layout_blueprint_nodes", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error laying out blueprint nodes: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def add_blueprint_comment_node(
+        ctx: Context,
+        blueprint_name: str,
+        text: str = "Comment",
+        node_position = None,
+        size = None,
+        color = None,
+        graph_name: str = None
+    ) -> Dict[str, Any]:
+        """Add a comment node to a Blueprint graph."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "text": text,
+                "node_position": node_position or [0, 0]
+            }
+            if size is not None:
+                params["size"] = size
+            if color is not None:
+                params["color"] = color
+            if graph_name is not None:
+                params["graph_name"] = graph_name
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("add_blueprint_comment_node", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error adding blueprint comment node: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def add_blueprint_reroute_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_position = None,
+        source_node_id: str = None,
+        source_pin: str = None,
+        target_node_id: str = None,
+        target_pin: str = None,
+        graph_name: str = None
+    ) -> Dict[str, Any]:
+        """Add a reroute node to a Blueprint graph."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "node_position": node_position or [0, 0]
+            }
+            if source_node_id is not None:
+                params["source_node_id"] = source_node_id
+            if source_pin is not None:
+                params["source_pin"] = source_pin
+            if target_node_id is not None:
+                params["target_node_id"] = target_node_id
+            if target_pin is not None:
+                params["target_pin"] = target_pin
+            if graph_name is not None:
+                params["graph_name"] = graph_name
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("add_blueprint_reroute_node", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error adding blueprint reroute node: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def create_blueprint_graph(
+        ctx: Context,
+        blueprint_name: str,
+        graph_name: str,
+        graph_type: str = "graph"
+    ) -> Dict[str, Any]:
+        """Create a graph, function graph, or macro graph on a Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "graph_name": graph_name,
+                "graph_type": graph_type
+            }
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("create_blueprint_graph", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error creating blueprint graph: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def delete_blueprint_graph(
+        ctx: Context,
+        blueprint_name: str,
+        graph_name: str
+    ) -> Dict[str, Any]:
+        """Delete a graph from a Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "graph_name": graph_name
+            }
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("delete_blueprint_graph", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error deleting blueprint graph: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def duplicate_blueprint_subgraph(
+        ctx: Context,
+        blueprint_name: str,
+        node_ids,
+        graph_name: str = None,
+        target_graph_name: str = None,
+        position_offset = None
+    ) -> Dict[str, Any]:
+        """Duplicate a selected Blueprint subgraph."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "node_ids": node_ids
+            }
+            if graph_name is not None:
+                params["graph_name"] = graph_name
+            if target_graph_name is not None:
+                params["target_graph_name"] = target_graph_name
+            if position_offset is not None:
+                params["position_offset"] = position_offset
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("duplicate_blueprint_subgraph", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error duplicating blueprint subgraph: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def collapse_nodes_to_function(
+        ctx: Context,
+        blueprint_name: str,
+        node_ids,
+        graph_name: str = None,
+        new_graph_name: str = None
+    ) -> Dict[str, Any]:
+        """Collapse selected Blueprint nodes into a new function graph."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "node_ids": node_ids
+            }
+            if graph_name is not None:
+                params["graph_name"] = graph_name
+            if new_graph_name is not None:
+                params["new_graph_name"] = new_graph_name
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("collapse_nodes_to_function", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error collapsing nodes to function: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def collapse_nodes_to_macro(
+        ctx: Context,
+        blueprint_name: str,
+        node_ids,
+        graph_name: str = None,
+        new_graph_name: str = None
+    ) -> Dict[str, Any]:
+        """Collapse selected Blueprint nodes into a new macro graph."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name,
+                "node_ids": node_ids
+            }
+            if graph_name is not None:
+                params["graph_name"] = graph_name
+            if new_graph_name is not None:
+                params["new_graph_name"] = new_graph_name
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("collapse_nodes_to_macro", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error collapsing nodes to macro: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def validate_blueprint_graph(
+        ctx: Context,
+        blueprint_name: str,
+        graph_name: str = None
+    ) -> Dict[str, Any]:
+        """Validate that a Blueprint graph can compile."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            params = {
+                "blueprint_name": blueprint_name
+            }
+            if graph_name is not None:
+                params["graph_name"] = graph_name
+
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("validate_blueprint_graph", params)
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+            return response
+
+        except Exception as e:
+            error_msg = f"Error validating blueprint graph: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def add_branch_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """Add a Branch node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="branch",
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_variable_get_node(
+        ctx: Context,
+        blueprint_name: str,
+        variable_name: str,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """Add a self variable get node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="self_variable_get",
+            variable_name=variable_name,
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_variable_set_node(
+        ctx: Context,
+        blueprint_name: str,
+        variable_name: str,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """Add a self variable set node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="self_variable_set",
+            variable_name=variable_name,
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_sequence_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_position = None,
+        then_pin_count: int = 2
+    ) -> Dict[str, Any]:
+        """Add a Sequence node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="sequence",
+            then_pin_count=then_pin_count,
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_delay_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_position = None,
+        duration: float = 0.2
+    ) -> Dict[str, Any]:
+        """Add a Delay node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="delay",
+            duration=duration,
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_gate_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """Add a Gate node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="gate",
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_for_loop_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """Add a For Loop node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="for_loop",
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_for_each_loop_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """Add a For Each Loop node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="for_each_loop",
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_cast_node(
+        ctx: Context,
+        blueprint_name: str,
+        class_name: str,
+        node_position = None,
+        pure: bool = False
+    ) -> Dict[str, Any]:
+        """Add a Dynamic Cast node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="cast",
+            class_name=class_name,
+            pure=pure,
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_make_struct_node(
+        ctx: Context,
+        blueprint_name: str,
+        struct_name: str,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """Add a Make Struct node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="make_struct",
+            struct_name=struct_name,
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_break_struct_node(
+        ctx: Context,
+        blueprint_name: str,
+        struct_name: str,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """Add a Break Struct node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="break_struct",
+            struct_name=struct_name,
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_switch_on_enum_node(
+        ctx: Context,
+        blueprint_name: str,
+        enum_name: str,
+        node_position = None
+    ) -> Dict[str, Any]:
+        """Add a Switch on Enum node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="switch_on_enum",
+            enum_name=enum_name,
+            node_position=node_position or [0, 0]
+        )
+
+    @mcp.tool()
+    def add_select_node(
+        ctx: Context,
+        blueprint_name: str,
+        node_position = None,
+        enum_name: str = "",
+        option_pin_count: int = 2
+    ) -> Dict[str, Any]:
+        """Add a Select node to a Blueprint graph."""
+        del ctx
+        return spawn_blueprint_node(
+            None,
+            blueprint_name=blueprint_name,
+            node_kind="select",
+            enum_name=enum_name or None,
+            option_pin_count=option_pin_count,
+            node_position=node_position or [0, 0]
+        )
 
     logger.info("Blueprint node tools registered successfully")

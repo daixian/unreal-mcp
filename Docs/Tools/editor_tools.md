@@ -17,13 +17,21 @@
 | `save_current_level` | 无 | 保存当前编辑器关卡。 |
 | `start_pie` | `simulate=False` | 请求启动 PIE。返回 `already_playing`、`play_world_available` 等状态字段。 |
 | `start_vr_preview` | 无 | 请求启动 VR Preview。返回 `request_queued`、`is_vr_preview` 等状态字段。 |
+| `start_standalone_game` | `map_override=""`、`additional_command_line_parameters=""` | 请求以本机新进程启动 Standalone Game。 |
 | `stop_pie` | 无 | 请求结束当前 PIE。 |
-| `get_play_state` | 无 | 查询当前编辑器是否处于 `pie` / `vr_preview` / `queued` / `stopped`。 |
+| `get_play_state` | 无 | 查询当前编辑器是否处于 `pie` / `vr_preview` / `standalone_game` / `queued` / `stopped`。 |
 | `start_live_coding` | `show_console=True` | 启用当前编辑器会话的 Live Coding。 |
 | `compile_live_coding` | `wait_for_completion=False`、`show_console=True` | 触发 Live Coding 编译。 |
 | `get_live_coding_state` | 无 | 查询 Live Coding 当前状态。 |
+| `get_editor_selection` | `include_components=False`、`detailed_components=True`、`include_tags=False` | 读取当前编辑器中同时选中的 Actor 与资产。 |
 | `focus_viewport` | `target=None`、`location=None`、`distance=1000.0`、`orientation=None` | 聚焦到指定 Actor 或坐标。`target` 与 `location` 至少要传一个。 |
 | `take_screenshot` | `filepath` | 对当前激活视口截图并写入文件。若路径不带 `.png`，Unreal 侧会自动补齐。 |
+| `take_highres_screenshot` | `filepath`、`resolution=None`、`resolution_multiplier=1.0`、`capture_hdr=False` | 生成一张高分辨率截图；默认 PNG 路径会同步落盘，HDR 仍走异步写盘。 |
+| `capture_viewport_sequence` | `output_dir`、`frame_count`、`interval_seconds=0.0`、`base_filename="ViewportSequence"` | 按序列帧方式捕获当前活动视口，可选高分辨率模式。 |
+| `run_editor_utility_widget` | `asset_path`、`tab_id=""` | 运行 Editor Utility Widget，并打开对应编辑器标签页。 |
+| `run_editor_utility_blueprint` | `asset_path` | 运行 Editor Utility Blueprint 的 `Run` 入口。 |
+| `set_viewport_mode` | `view_mode`、`apply_to_all=False` | 设置活动关卡视口或全部关卡视口的显示模式。 |
+| `get_viewport_camera` | 无 | 读取当前活动关卡视口的相机位置、旋转、FOV 与视图模式。 |
 
 ## 参数注意事项
 
@@ -34,6 +42,42 @@
 - `filepath`
 
 旧文档中的 `filename`、`show_ui`、`resolution` 并不是当前 MCP 工具真实支持的参数，不应再继续使用。
+
+### `take_highres_screenshot`
+
+当前对外公开参数：
+
+- `filepath`
+- `resolution`
+- `resolution_multiplier`
+- `capture_hdr`
+
+说明：
+
+- `resolution` 传 `[宽, 高]` 时会直接指定目标分辨率。
+- 不传 `resolution` 时，Unreal 会以当前活动视口尺寸乘以 `resolution_multiplier` 生成高分辨率截图。
+- 默认 `capture_hdr=False` 时，工具会直接读取当前活动视口像素、按目标分辨率缩放并同步写出 PNG。
+- `capture_hdr=True` 时仍走 Unreal 原生高分辨率截图链路，文件可能在响应返回后异步落盘。
+
+### `capture_viewport_sequence`
+
+当前对外公开参数：
+
+- `output_dir`
+- `frame_count`
+- `interval_seconds`
+- `base_filename`
+- `use_high_res`
+- `resolution`
+- `resolution_multiplier`
+- `show_ui`
+- `capture_hdr`
+
+说明：
+
+- 该命令一次只允许存在一个活动序列捕获任务。
+- `planned_filepaths` 会返回预期写出的所有帧文件路径，便于外部轮询落盘完成情况。
+- 当 `use_high_res=True` 时，每一帧都走高分辨率截图路径；否则走普通截图路径，`show_ui` 仅在普通截图模式下生效。
 
 ### `compile_live_coding`
 
@@ -55,10 +99,18 @@
 
 - `start_pie`：`already_playing`、`play_world_available`、`message`
 - `start_vr_preview`：`already_playing`、`request_queued`、`is_vr_preview`
-- `get_play_state`：`is_playing`、`is_play_session_queued`、`is_vr_preview`、`play_mode`
+- `start_standalone_game`：`request_queued`、`play_session_destination`、`is_standalone_game`
+- `get_play_state`：`is_playing`、`is_play_session_queued`、`is_vr_preview`、`is_standalone_game`、`play_session_destination`、`play_mode`
+- `get_editor_selection`：`actors`、`assets`、`actor_count`、`asset_count`、`selection_count`
 - `start_live_coding`：`show_console` 以及 Unreal 侧当前 Live Coding 状态字段
 - `compile_live_coding`：`compile_result`、`wait_for_completion`、`show_console`
 - `take_screenshot`：`filepath`
+- `take_highres_screenshot`：`request_queued`、`written`、`filepath`、`resolution`、`resolution_multiplier`
+- `capture_viewport_sequence`：`request_queued`、`sequence_id`、`planned_filepaths`、`frame_count`
+- `run_editor_utility_widget`：`tab_id`、`widget_name`、`widget_class`
+- `run_editor_utility_blueprint`：`generated_class`
+- `set_viewport_mode`：`view_mode`、`view_mode_index`、`updated_viewport_count`
+- `get_viewport_camera`：`location`、`rotation`、`fov`、`view_mode`、`viewport_type`
 
 ## 调用示例
 
@@ -69,6 +121,30 @@
   "tool": "start_pie",
   "args": {
     "simulate": false
+  }
+}
+```
+
+### 启动 Standalone Game
+
+```json
+{
+  "tool": "start_standalone_game",
+  "args": {
+    "map_override": "/Game/MainMap",
+    "additional_command_line_parameters": "-ResX=1280 -ResY=720"
+  }
+}
+```
+
+### 读取当前编辑器选择
+
+```json
+{
+  "tool": "get_editor_selection",
+  "args": {
+    "include_components": false,
+    "include_tags": true
   }
 }
 ```
@@ -94,5 +170,65 @@
   "args": {
     "filepath": "C:/Temp/ue_view.png"
   }
+}
+```
+
+### 请求一张高分辨率截图
+
+```json
+{
+  "tool": "take_highres_screenshot",
+  "args": {
+    "filepath": "C:/Temp/ue_highres.png",
+    "resolution": [2560, 1440]
+  }
+}
+```
+
+### 捕获 5 帧视口序列
+
+```json
+{
+  "tool": "capture_viewport_sequence",
+  "args": {
+    "output_dir": "C:/Temp/ViewportSequence",
+    "frame_count": 5,
+    "interval_seconds": 0.1,
+    "base_filename": "VRPreview",
+    "use_high_res": true,
+    "resolution_multiplier": 1.5
+  }
+}
+```
+
+### 运行 Editor Utility Widget
+
+```json
+{
+  "tool": "run_editor_utility_widget",
+  "args": {
+    "asset_path": "/Game/Editor/EUW_DebugPanel"
+  }
+}
+```
+
+### 切换视口到 Unlit
+
+```json
+{
+  "tool": "set_viewport_mode",
+  "args": {
+    "view_mode": "Unlit",
+    "apply_to_all": false
+  }
+}
+```
+
+### 读取当前视口摄像机
+
+```json
+{
+  "tool": "get_viewport_camera",
+  "args": {}
 }
 ```

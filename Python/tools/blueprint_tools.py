@@ -507,5 +507,81 @@ def register_blueprint_tools(mcp: FastMCP):
             error_msg = f"Error setting game mode default pawn: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def delete_blueprint_variable(
+        ctx: Context,
+        blueprint_name: str,
+        variable_name: str
+    ) -> Dict[str, Any]:
+        """Delete a variable from a Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("delete_blueprint_variable", {
+                "blueprint_name": blueprint_name,
+                "variable_name": variable_name
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def set_blueprint_variable_default(
+        ctx: Context,
+        blueprint_name: str,
+        variable_name: str,
+        default_value
+    ) -> Dict[str, Any]:
+        """Set the default value of a Blueprint member variable."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("set_blueprint_variable_default", {
+                "blueprint_name": blueprint_name,
+                "variable_name": variable_name,
+                "default_value": default_value
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def save_blueprint(ctx: Context, blueprint_name: str) -> Dict[str, Any]:
+        """Save a Blueprint asset."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("save_blueprint", {
+                "blueprint_name": blueprint_name
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def open_blueprint_editor(ctx: Context, blueprint_name: str) -> Dict[str, Any]:
+        """Open the Blueprint editor for a Blueprint asset."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("open_blueprint_editor", {
+                "blueprint_name": blueprint_name
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
     
     logger.info("Blueprint tools registered successfully") 

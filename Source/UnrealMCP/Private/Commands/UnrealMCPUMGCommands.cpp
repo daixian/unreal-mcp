@@ -17,8 +17,22 @@
 // #include "WidgetBlueprintFactory.h"
 #include "WidgetBlueprintEditor.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/Border.h"
+#include "Components/CheckBox.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/EditableText.h"
+#include "Components/HorizontalBox.h"
+#include "Components/Image.h"
+#include "Components/MultiLineEditableTextBox.h"
+#include "Components/Overlay.h"
+#include "Components/ProgressBar.h"
+#include "Components/RichTextBlock.h"
+#include "Components/ScrollBox.h"
+#include "Components/SizeBox.h"
+#include "Components/Slider.h"
+#include "Components/Spacer.h"
+#include "Components/VerticalBox.h"
 #include "JsonObjectConverter.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Components/Button.h"
@@ -33,6 +47,7 @@
 #include "EdGraphSchema_K2.h"
 #include "Misc/PackageName.h"
 #include "Styling/SlateColor.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "UObject/UnrealType.h"
 
 static bool UnrealMCPUMGTryGetStringField(const TSharedPtr<FJsonObject>& Params, std::initializer_list<const TCHAR*> FieldNames, FString& OutValue)
@@ -173,6 +188,79 @@ static void UnrealMCPUMGApplyCanvasSlotLayout(UCanvasPanelSlot* PanelSlot, const
 	{
 		PanelSlot->SetSize(UnrealMCPUMGGetVector2DField(Params, TEXT("size"), FVector2D(200.0f, 50.0f)));
 	}
+}
+
+static bool UnrealMCPUMGCompileAndSave(UWidgetBlueprint* WidgetBlueprint)
+{
+	if (!WidgetBlueprint)
+	{
+		return false;
+	}
+
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBlueprint);
+	FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
+	return UEditorAssetLibrary::SaveAsset(FPackageName::ObjectPathToPackageName(WidgetBlueprint->GetPathName()), false);
+}
+
+static TSharedPtr<FJsonObject> UnrealMCPUMGCreateWidgetAddedResponse(
+	const FString& BlueprintName,
+	const FString& WidgetName,
+	const FString& WidgetType)
+{
+	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
+	Response->SetBoolField(TEXT("success"), true);
+	Response->SetStringField(TEXT("blueprint_name"), BlueprintName);
+	Response->SetStringField(TEXT("widget_name"), WidgetName);
+	Response->SetStringField(TEXT("widget_type"), WidgetType);
+	return Response;
+}
+
+static bool UnrealMCPUMGResolveBlueprintAndWidgetName(
+	const TSharedPtr<FJsonObject>& Params,
+	const TCHAR* LegacyWidgetField,
+	FString& OutBlueprintName,
+	FString& OutWidgetName,
+	FString& OutErrorMessage);
+
+template<typename WidgetType, typename ConfigureWidgetFunc>
+static TSharedPtr<FJsonObject> UnrealMCPUMGAddWidgetToRootCanvas(
+	const TSharedPtr<FJsonObject>& Params,
+	const TCHAR* LegacyWidgetField,
+	const TCHAR* WidgetTypeName,
+	ConfigureWidgetFunc&& ConfigureWidgetFuncBody)
+{
+	FString BlueprintName;
+	FString WidgetName;
+	FString ErrorMessage;
+	if (!UnrealMCPUMGResolveBlueprintAndWidgetName(Params, LegacyWidgetField, BlueprintName, WidgetName, ErrorMessage))
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+	}
+
+	UWidgetBlueprint* WidgetBlueprint = UnrealMCPUMGFindWidgetBlueprint(BlueprintName);
+	if (!WidgetBlueprint)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Widget Blueprint '%s' not found"), *BlueprintName));
+	}
+
+	WidgetType* Widget = WidgetBlueprint->WidgetTree->ConstructWidget<WidgetType>(WidgetType::StaticClass(), *WidgetName);
+	if (!Widget)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to create %s widget"), WidgetTypeName));
+	}
+
+	ConfigureWidgetFuncBody(Widget, BlueprintName, WidgetName);
+
+	UCanvasPanel* RootCanvas = UnrealMCPUMGGetOrCreateRootCanvas(WidgetBlueprint);
+	if (!RootCanvas)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Root Canvas Panel not found"));
+	}
+
+	UCanvasPanelSlot* PanelSlot = RootCanvas->AddChildToCanvas(Widget);
+	UnrealMCPUMGApplyCanvasSlotLayout(PanelSlot, Params);
+	UnrealMCPUMGCompileAndSave(WidgetBlueprint);
+	return UnrealMCPUMGCreateWidgetAddedResponse(BlueprintName, WidgetName, WidgetTypeName);
 }
 
 static UWorld* UnrealMCPUMGGetPlayWorld()
@@ -340,6 +428,70 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleCommand(const FString& Comm
 	{
 		return HandleSetTextBlockBinding(Params);
 	}
+	else if (CommandName == TEXT("add_image_to_widget"))
+	{
+		return HandleAddImageToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_border_to_widget"))
+	{
+		return HandleAddBorderToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_canvas_panel_to_widget"))
+	{
+		return HandleAddCanvasPanelToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_horizontal_box_to_widget"))
+	{
+		return HandleAddHorizontalBoxToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_vertical_box_to_widget"))
+	{
+		return HandleAddVerticalBoxToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_overlay_to_widget"))
+	{
+		return HandleAddOverlayToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_scroll_box_to_widget"))
+	{
+		return HandleAddScrollBoxToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_size_box_to_widget"))
+	{
+		return HandleAddSizeBoxToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_spacer_to_widget"))
+	{
+		return HandleAddSpacerToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_progress_bar_to_widget"))
+	{
+		return HandleAddProgressBarToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_slider_to_widget"))
+	{
+		return HandleAddSliderToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_check_box_to_widget"))
+	{
+		return HandleAddCheckBoxToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_editable_text_to_widget"))
+	{
+		return HandleAddEditableTextToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_rich_text_to_widget"))
+	{
+		return HandleAddRichTextToWidget(Params);
+	}
+	else if (CommandName == TEXT("add_multi_line_text_to_widget"))
+	{
+		return HandleAddMultiLineTextToWidget(Params);
+	}
+	else if (CommandName == TEXT("open_widget_blueprint_editor"))
+	{
+		return HandleOpenWidgetBlueprintEditor(Params);
+	}
 
 	return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown UMG command: %s"), *CommandName));
 }
@@ -472,9 +624,7 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddTextBlockToWidget(const 
 	UCanvasPanelSlot* PanelSlot = RootCanvas->AddChildToCanvas(TextBlock);
 	UnrealMCPUMGApplyCanvasSlotLayout(PanelSlot, Params);
 
-	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBlueprint);
-	FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
-	UEditorAssetLibrary::SaveAsset(FPackageName::ObjectPathToPackageName(WidgetBlueprint->GetPathName()), false);
+	UnrealMCPUMGCompileAndSave(WidgetBlueprint);
 
 	TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
 	ResultObj->SetBoolField(TEXT("success"), true);
@@ -591,9 +741,7 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddButtonToWidget(const TSh
 	UCanvasPanelSlot* ButtonSlot = RootCanvas->AddChildToCanvas(Button);
 	UnrealMCPUMGApplyCanvasSlotLayout(ButtonSlot, Params);
 
-	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBlueprint);
-	FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
-	UEditorAssetLibrary::SaveAsset(FPackageName::ObjectPathToPackageName(WidgetBlueprint->GetPathName()), false);
+	UnrealMCPUMGCompileAndSave(WidgetBlueprint);
 
 	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
 	Response->SetBoolField(TEXT("success"), true);
@@ -677,9 +825,7 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleBindWidgetEvent(const TShar
 		EventNode->ReconstructNode();
 	}
 
-	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBlueprint);
-	FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
-	UEditorAssetLibrary::SaveAsset(FPackageName::ObjectPathToPackageName(WidgetBlueprint->GetPathName()), false);
+	UnrealMCPUMGCompileAndSave(WidgetBlueprint);
 
 	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
 	Response->SetBoolField(TEXT("success"), true);
@@ -770,9 +916,7 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleSetTextBlockBinding(const T
 	WidgetBlueprint->Modify();
 	WidgetBlueprint->Bindings.Remove(Binding);
 	WidgetBlueprint->Bindings.AddUnique(Binding);
-	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(WidgetBlueprint);
-	FKismetEditorUtilities::CompileBlueprint(WidgetBlueprint);
-	UEditorAssetLibrary::SaveAsset(FPackageName::ObjectPathToPackageName(WidgetBlueprint->GetPathName()), false);
+	UnrealMCPUMGCompileAndSave(WidgetBlueprint);
 
 	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
 	Response->SetBoolField(TEXT("success"), true);
@@ -781,4 +925,351 @@ TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleSetTextBlockBinding(const T
 	Response->SetStringField(TEXT("binding_type"), BindingPropertyName.ToString());
 	Response->SetStringField(TEXT("binding_name"), BindingName);
 	return Response;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddImageToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	return UnrealMCPUMGAddWidgetToRootCanvas<UImage>(
+		Params,
+		TEXT("image_name"),
+		TEXT("Image"),
+		[&Params](UImage* Image, const FString&, const FString&)
+		{
+			Image->SetColorAndOpacity(UnrealMCPUMGGetColorField(Params, TEXT("color"), FLinearColor::White));
+		});
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddBorderToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	return UnrealMCPUMGAddWidgetToRootCanvas<UBorder>(
+		Params,
+		TEXT("border_name"),
+		TEXT("Border"),
+		[&Params](UBorder* Border, const FString&, const FString&)
+		{
+			Border->SetBrushColor(UnrealMCPUMGGetColorField(Params, TEXT("brush_color"), FLinearColor::White));
+			Border->SetContentColorAndOpacity(UnrealMCPUMGGetColorField(Params, TEXT("content_color"), FLinearColor::White));
+		});
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddCanvasPanelToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	return UnrealMCPUMGAddWidgetToRootCanvas<UCanvasPanel>(
+		Params,
+		TEXT("canvas_panel_name"),
+		TEXT("CanvasPanel"),
+		[](UCanvasPanel*, const FString&, const FString&) {});
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddHorizontalBoxToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	return UnrealMCPUMGAddWidgetToRootCanvas<UHorizontalBox>(
+		Params,
+		TEXT("horizontal_box_name"),
+		TEXT("HorizontalBox"),
+		[](UHorizontalBox*, const FString&, const FString&) {});
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddVerticalBoxToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	return UnrealMCPUMGAddWidgetToRootCanvas<UVerticalBox>(
+		Params,
+		TEXT("vertical_box_name"),
+		TEXT("VerticalBox"),
+		[](UVerticalBox*, const FString&, const FString&) {});
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddOverlayToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	return UnrealMCPUMGAddWidgetToRootCanvas<UOverlay>(
+		Params,
+		TEXT("overlay_name"),
+		TEXT("Overlay"),
+		[](UOverlay*, const FString&, const FString&) {});
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddScrollBoxToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	return UnrealMCPUMGAddWidgetToRootCanvas<UScrollBox>(
+		Params,
+		TEXT("scroll_box_name"),
+		TEXT("ScrollBox"),
+		[](UScrollBox*, const FString&, const FString&) {});
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddSizeBoxToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	return UnrealMCPUMGAddWidgetToRootCanvas<USizeBox>(
+		Params,
+		TEXT("size_box_name"),
+		TEXT("SizeBox"),
+		[&Params](USizeBox* SizeBox, const FString&, const FString&)
+		{
+			const FVector2D RequestedSize = UnrealMCPUMGGetVector2DField(Params, TEXT("size"), FVector2D(200.0f, 50.0f));
+			if (Params.IsValid() && Params->HasField(TEXT("width_override")))
+			{
+				SizeBox->SetWidthOverride(static_cast<float>(Params->GetNumberField(TEXT("width_override"))));
+			}
+			else
+			{
+				SizeBox->SetWidthOverride(RequestedSize.X);
+			}
+
+			if (Params.IsValid() && Params->HasField(TEXT("height_override")))
+			{
+				SizeBox->SetHeightOverride(static_cast<float>(Params->GetNumberField(TEXT("height_override"))));
+			}
+			else
+			{
+				SizeBox->SetHeightOverride(RequestedSize.Y);
+			}
+		});
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddSpacerToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	return UnrealMCPUMGAddWidgetToRootCanvas<USpacer>(
+		Params,
+		TEXT("spacer_name"),
+		TEXT("Spacer"),
+		[&Params](USpacer* Spacer, const FString&, const FString&)
+		{
+			Spacer->SetSize(UnrealMCPUMGGetVector2DField(Params, TEXT("size"), FVector2D(32.0f, 32.0f)));
+		});
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddProgressBarToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	FString BlueprintName;
+	FString WidgetName;
+	FString ErrorMessage;
+	if (!UnrealMCPUMGResolveBlueprintAndWidgetName(Params, TEXT("progress_bar_name"), BlueprintName, WidgetName, ErrorMessage))
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+	}
+
+	UWidgetBlueprint* WidgetBlueprint = UnrealMCPUMGFindWidgetBlueprint(BlueprintName);
+	if (!WidgetBlueprint)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Widget Blueprint '%s' not found"), *BlueprintName));
+	}
+
+	UProgressBar* ProgressBar = WidgetBlueprint->WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), *WidgetName);
+	if (!ProgressBar)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to create Progress Bar widget"));
+	}
+
+	const float Percent = Params.IsValid() && Params->HasField(TEXT("percent"))
+		? static_cast<float>(Params->GetNumberField(TEXT("percent")))
+		: 0.5f;
+	ProgressBar->SetPercent(FMath::Clamp(Percent, 0.0f, 1.0f));
+	ProgressBar->SetFillColorAndOpacity(UnrealMCPUMGGetColorField(Params, TEXT("fill_color"), FLinearColor::White));
+
+	UCanvasPanel* RootCanvas = UnrealMCPUMGGetOrCreateRootCanvas(WidgetBlueprint);
+	if (!RootCanvas)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Root Canvas Panel not found"));
+	}
+
+	UCanvasPanelSlot* PanelSlot = RootCanvas->AddChildToCanvas(ProgressBar);
+	UnrealMCPUMGApplyCanvasSlotLayout(PanelSlot, Params);
+	UnrealMCPUMGCompileAndSave(WidgetBlueprint);
+
+	TSharedPtr<FJsonObject> Response = UnrealMCPUMGCreateWidgetAddedResponse(BlueprintName, WidgetName, TEXT("ProgressBar"));
+	Response->SetNumberField(TEXT("percent"), ProgressBar->GetPercent());
+	return Response;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddSliderToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Response = UnrealMCPUMGAddWidgetToRootCanvas<USlider>(
+		Params,
+		TEXT("slider_name"),
+		TEXT("Slider"),
+		[&Params](USlider* Slider, const FString&, const FString&)
+		{
+			const float Value = Params.IsValid() && Params->HasField(TEXT("value"))
+				? static_cast<float>(Params->GetNumberField(TEXT("value")))
+				: 0.0f;
+			Slider->SetValue(FMath::Clamp(Value, 0.0f, 1.0f));
+		});
+	if (Response.IsValid() && Response->GetBoolField(TEXT("success")))
+	{
+		Response->SetNumberField(
+			TEXT("value"),
+			Params.IsValid() && Params->HasField(TEXT("value"))
+				? FMath::Clamp(static_cast<float>(Params->GetNumberField(TEXT("value"))), 0.0f, 1.0f)
+				: 0.0f);
+	}
+	return Response;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddCheckBoxToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	TSharedPtr<FJsonObject> Response = UnrealMCPUMGAddWidgetToRootCanvas<UCheckBox>(
+		Params,
+		TEXT("check_box_name"),
+		TEXT("CheckBox"),
+		[&Params](UCheckBox* CheckBox, const FString&, const FString&)
+		{
+			bool bIsChecked = false;
+			if (Params.IsValid())
+			{
+				Params->TryGetBoolField(TEXT("is_checked"), bIsChecked);
+			}
+			CheckBox->SetIsChecked(bIsChecked);
+		});
+	if (Response.IsValid() && Response->GetBoolField(TEXT("success")))
+	{
+		bool bIsChecked = false;
+		if (Params.IsValid())
+		{
+			Params->TryGetBoolField(TEXT("is_checked"), bIsChecked);
+		}
+		Response->SetBoolField(TEXT("is_checked"), bIsChecked);
+	}
+	return Response;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddEditableTextToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	FString BlueprintName;
+	FString WidgetName;
+	FString ErrorMessage;
+	if (!UnrealMCPUMGResolveBlueprintAndWidgetName(Params, TEXT("editable_text_name"), BlueprintName, WidgetName, ErrorMessage))
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+	}
+
+	UWidgetBlueprint* WidgetBlueprint = UnrealMCPUMGFindWidgetBlueprint(BlueprintName);
+	if (!WidgetBlueprint)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Widget Blueprint '%s' not found"), *BlueprintName));
+	}
+
+	UEditableText* EditableText = WidgetBlueprint->WidgetTree->ConstructWidget<UEditableText>(UEditableText::StaticClass(), *WidgetName);
+	if (!EditableText)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to create Editable Text widget"));
+	}
+
+	FString InitialText;
+	Params->TryGetStringField(TEXT("text"), InitialText);
+	EditableText->SetText(FText::FromString(InitialText));
+
+	FString HintText;
+	if (Params->TryGetStringField(TEXT("hint_text"), HintText))
+	{
+		EditableText->SetHintText(FText::FromString(HintText));
+	}
+
+	bool bIsReadOnly = false;
+	if (Params->TryGetBoolField(TEXT("is_read_only"), bIsReadOnly))
+	{
+		EditableText->SetIsReadOnly(bIsReadOnly);
+	}
+
+	UCanvasPanel* RootCanvas = UnrealMCPUMGGetOrCreateRootCanvas(WidgetBlueprint);
+	if (!RootCanvas)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Root Canvas Panel not found"));
+	}
+
+	UCanvasPanelSlot* PanelSlot = RootCanvas->AddChildToCanvas(EditableText);
+	UnrealMCPUMGApplyCanvasSlotLayout(PanelSlot, Params);
+	UnrealMCPUMGCompileAndSave(WidgetBlueprint);
+
+	TSharedPtr<FJsonObject> Response = UnrealMCPUMGCreateWidgetAddedResponse(BlueprintName, WidgetName, TEXT("EditableText"));
+	Response->SetStringField(TEXT("text"), InitialText);
+	Response->SetBoolField(TEXT("is_read_only"), bIsReadOnly);
+	return Response;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddRichTextToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	FString InitialText;
+	if (Params.IsValid())
+	{
+		Params->TryGetStringField(TEXT("text"), InitialText);
+	}
+
+	TSharedPtr<FJsonObject> Response = UnrealMCPUMGAddWidgetToRootCanvas<URichTextBlock>(
+		Params,
+		TEXT("rich_text_name"),
+		TEXT("RichTextBlock"),
+		[&Params, &InitialText](URichTextBlock* RichTextBlock, const FString&, const FString&)
+		{
+			RichTextBlock->SetText(FText::FromString(InitialText));
+			RichTextBlock->SetDefaultColorAndOpacity(FSlateColor(UnrealMCPUMGGetColorField(Params, TEXT("color"), FLinearColor::White)));
+		});
+	if (Response.IsValid() && Response->GetBoolField(TEXT("success")))
+	{
+		Response->SetStringField(TEXT("text"), InitialText);
+	}
+	return Response;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleAddMultiLineTextToWidget(const TSharedPtr<FJsonObject>& Params)
+{
+	FString InitialText;
+	FString HintText;
+	bool bIsReadOnly = false;
+	if (Params.IsValid())
+	{
+		Params->TryGetStringField(TEXT("text"), InitialText);
+		Params->TryGetStringField(TEXT("hint_text"), HintText);
+		Params->TryGetBoolField(TEXT("is_read_only"), bIsReadOnly);
+	}
+
+	TSharedPtr<FJsonObject> Response = UnrealMCPUMGAddWidgetToRootCanvas<UMultiLineEditableTextBox>(
+		Params,
+		TEXT("multi_line_text_name"),
+		TEXT("MultiLineEditableTextBox"),
+		[&InitialText, &HintText, bIsReadOnly](UMultiLineEditableTextBox* MultiLineText, const FString&, const FString&)
+		{
+			MultiLineText->SetText(FText::FromString(InitialText));
+			MultiLineText->SetHintText(FText::FromString(HintText));
+			MultiLineText->SetIsReadOnly(bIsReadOnly);
+		});
+	if (Response.IsValid() && Response->GetBoolField(TEXT("success")))
+	{
+		Response->SetStringField(TEXT("text"), InitialText);
+		Response->SetStringField(TEXT("hint_text"), HintText);
+		Response->SetBoolField(TEXT("is_read_only"), bIsReadOnly);
+	}
+	return Response;
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPUMGCommands::HandleOpenWidgetBlueprintEditor(const TSharedPtr<FJsonObject>& Params)
+{
+	FString BlueprintName;
+	if (!UnrealMCPUMGTryGetStringField(Params, {TEXT("blueprint_name"), TEXT("widget_name")}, BlueprintName))
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'blueprint_name' parameter"));
+	}
+
+	UWidgetBlueprint* WidgetBlueprint = UnrealMCPUMGFindWidgetBlueprint(BlueprintName);
+	if (!WidgetBlueprint)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Widget Blueprint '%s' not found"), *BlueprintName));
+	}
+
+	UAssetEditorSubsystem* AssetEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+	if (!AssetEditorSubsystem)
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("AssetEditorSubsystem is unavailable"));
+	}
+
+	if (!AssetEditorSubsystem->OpenEditorForAsset(WidgetBlueprint))
+	{
+		return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to open Widget Blueprint editor: %s"), *BlueprintName));
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("blueprint_name"), BlueprintName);
+	Result->SetStringField(TEXT("asset_path"), FPackageName::ObjectPathToPackageName(WidgetBlueprint->GetPathName()));
+	Result->SetStringField(TEXT("object_path"), WidgetBlueprint->GetPathName());
+	return Result;
 }

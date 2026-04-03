@@ -26,7 +26,83 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/GameModeBase.h"
 #include "Misc/App.h"
+#include "Misc/PackageName.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 #include "UObject/UObjectGlobals.h"
+
+static bool UnrealMCPBlueprintDefaultValueToString(
+    const FEdGraphPinType& PinType,
+    const TSharedPtr<FJsonValue>& Value,
+    FString& OutDefaultValue,
+    FString& OutErrorMessage)
+{
+    if (!Value.IsValid())
+    {
+        OutErrorMessage = TEXT("Missing 'default_value' parameter");
+        return false;
+    }
+
+    if (PinType.PinCategory == UEdGraphSchema_K2::PC_Boolean)
+    {
+        OutDefaultValue = Value->AsBool() ? TEXT("true") : TEXT("false");
+        return true;
+    }
+
+    if (PinType.PinCategory == UEdGraphSchema_K2::PC_Int)
+    {
+        OutDefaultValue = FString::FromInt(static_cast<int32>(Value->AsNumber()));
+        return true;
+    }
+
+    if (PinType.PinCategory == UEdGraphSchema_K2::PC_Float)
+    {
+        OutDefaultValue = FString::SanitizeFloat(Value->AsNumber());
+        return true;
+    }
+
+    if (PinType.PinCategory == UEdGraphSchema_K2::PC_String ||
+        PinType.PinCategory == UEdGraphSchema_K2::PC_Name ||
+        PinType.PinCategory == UEdGraphSchema_K2::PC_Text)
+    {
+        OutDefaultValue = Value->AsString();
+        return true;
+    }
+
+    if (PinType.PinCategory == UEdGraphSchema_K2::PC_Struct && PinType.PinSubCategoryObject == TBaseStructure<FVector>::Get())
+    {
+        const TArray<TSharedPtr<FJsonValue>>* ArrayValue = nullptr;
+        if (!Value->TryGetArray(ArrayValue) || !ArrayValue || ArrayValue->Num() < 3)
+        {
+            OutErrorMessage = TEXT("Vector default value must be an array with 3 numbers");
+            return false;
+        }
+
+        OutDefaultValue = FString::Printf(TEXT("(X=%s,Y=%s,Z=%s)"),
+            *FString::SanitizeFloat((*ArrayValue)[0]->AsNumber()),
+            *FString::SanitizeFloat((*ArrayValue)[1]->AsNumber()),
+            *FString::SanitizeFloat((*ArrayValue)[2]->AsNumber()));
+        return true;
+    }
+
+    if (PinType.PinCategory == UEdGraphSchema_K2::PC_Struct && PinType.PinSubCategoryObject == TBaseStructure<FRotator>::Get())
+    {
+        const TArray<TSharedPtr<FJsonValue>>* ArrayValue = nullptr;
+        if (!Value->TryGetArray(ArrayValue) || !ArrayValue || ArrayValue->Num() < 3)
+        {
+            OutErrorMessage = TEXT("Rotator default value must be an array with 3 numbers");
+            return false;
+        }
+
+        OutDefaultValue = FString::Printf(TEXT("(Pitch=%s,Yaw=%s,Roll=%s)"),
+            *FString::SanitizeFloat((*ArrayValue)[0]->AsNumber()),
+            *FString::SanitizeFloat((*ArrayValue)[1]->AsNumber()),
+            *FString::SanitizeFloat((*ArrayValue)[2]->AsNumber()));
+        return true;
+    }
+
+    OutErrorMessage = FString::Printf(TEXT("Unsupported variable type for default value: %s"), *PinType.PinCategory.ToString());
+    return false;
+}
 
 /**
  * @brief 构造函数。
@@ -86,6 +162,22 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleCommand(const FString
     else if (CommandType == TEXT("set_game_mode_default_pawn"))
     {
         return HandleSetGameModeDefaultPawn(Params);
+    }
+    else if (CommandType == TEXT("delete_blueprint_variable"))
+    {
+        return HandleDeleteBlueprintVariable(Params);
+    }
+    else if (CommandType == TEXT("set_blueprint_variable_default"))
+    {
+        return HandleSetBlueprintVariableDefault(Params);
+    }
+    else if (CommandType == TEXT("save_blueprint"))
+    {
+        return HandleSaveBlueprint(Params);
+    }
+    else if (CommandType == TEXT("open_blueprint_editor"))
+    {
+        return HandleOpenBlueprintEditor(Params);
     }
     
     return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Unknown blueprint command: %s"), *CommandType));
@@ -1516,4 +1608,170 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetGameModeDefaultPaw
     ResultObj->SetStringField(TEXT("game_mode"), GameModeName);
     ResultObj->SetStringField(TEXT("default_pawn"), PawnBlueprintName);
     return ResultObj;
+}
+
+/**
+ * @brief 删除 Blueprint 成员变量。
+ * @param [in] Params 删除参数。
+ * @return TSharedPtr<FJsonObject> 删除结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleDeleteBlueprintVariable(const TSharedPtr<FJsonObject>& Params)
+{
+    FString BlueprintName;
+    if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'blueprint_name' parameter"));
+    }
+
+    FString VariableName;
+    if (!Params->TryGetStringField(TEXT("variable_name"), VariableName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'variable_name' parameter"));
+    }
+
+    UBlueprint* Blueprint = FUnrealMCPCommonUtils::FindBlueprint(BlueprintName);
+    if (!Blueprint)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintName));
+    }
+
+    const int32 VariableIndex = FBlueprintEditorUtils::FindNewVariableIndex(Blueprint, FName(*VariableName));
+    if (VariableIndex == INDEX_NONE)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint variable not found: %s"), *VariableName));
+    }
+
+    FBlueprintEditorUtils::RemoveMemberVariable(Blueprint, FName(*VariableName));
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("blueprint_name"), BlueprintName);
+    Result->SetStringField(TEXT("variable_name"), VariableName);
+    return Result;
+}
+
+/**
+ * @brief 设置 Blueprint 成员变量默认值。
+ * @param [in] Params 默认值参数。
+ * @return TSharedPtr<FJsonObject> 设置结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSetBlueprintVariableDefault(const TSharedPtr<FJsonObject>& Params)
+{
+    FString BlueprintName;
+    if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'blueprint_name' parameter"));
+    }
+
+    FString VariableName;
+    if (!Params->TryGetStringField(TEXT("variable_name"), VariableName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'variable_name' parameter"));
+    }
+
+    TSharedPtr<FJsonValue> DefaultValue = Params->TryGetField(TEXT("default_value"));
+    if (!DefaultValue.IsValid())
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'default_value' parameter"));
+    }
+
+    UBlueprint* Blueprint = FUnrealMCPCommonUtils::FindBlueprint(BlueprintName);
+    if (!Blueprint)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintName));
+    }
+
+    const int32 VariableIndex = FBlueprintEditorUtils::FindNewVariableIndex(Blueprint, FName(*VariableName));
+    if (VariableIndex == INDEX_NONE)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint variable not found: %s"), *VariableName));
+    }
+
+    FString DefaultValueString;
+    FString ErrorMessage;
+    if (!UnrealMCPBlueprintDefaultValueToString(Blueprint->NewVariables[VariableIndex].VarType, DefaultValue, DefaultValueString, ErrorMessage))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    Blueprint->Modify();
+    Blueprint->NewVariables[VariableIndex].DefaultValue = DefaultValueString;
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+    FKismetEditorUtilities::CompileBlueprint(Blueprint);
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("blueprint_name"), BlueprintName);
+    Result->SetStringField(TEXT("variable_name"), VariableName);
+    Result->SetStringField(TEXT("default_value"), DefaultValueString);
+    return Result;
+}
+
+/**
+ * @brief 保存 Blueprint 资产。
+ * @param [in] Params 保存参数。
+ * @return TSharedPtr<FJsonObject> 保存结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleSaveBlueprint(const TSharedPtr<FJsonObject>& Params)
+{
+    FString BlueprintName;
+    if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'blueprint_name' parameter"));
+    }
+
+    UBlueprint* Blueprint = FUnrealMCPCommonUtils::FindBlueprint(BlueprintName);
+    if (!Blueprint)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintName));
+    }
+
+    if (!UEditorAssetLibrary::SaveLoadedAsset(Blueprint, false))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to save blueprint: %s"), *BlueprintName));
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("blueprint_name"), BlueprintName);
+    Result->SetStringField(TEXT("asset_path"), FPackageName::ObjectPathToPackageName(Blueprint->GetPathName()));
+    return Result;
+}
+
+/**
+ * @brief 打开 Blueprint 编辑器。
+ * @param [in] Params 打开参数。
+ * @return TSharedPtr<FJsonObject> 打开结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPBlueprintCommands::HandleOpenBlueprintEditor(const TSharedPtr<FJsonObject>& Params)
+{
+    FString BlueprintName;
+    if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'blueprint_name' parameter"));
+    }
+
+    UBlueprint* Blueprint = FUnrealMCPCommonUtils::FindBlueprint(BlueprintName);
+    if (!Blueprint)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintName));
+    }
+
+    UAssetEditorSubsystem* AssetEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<UAssetEditorSubsystem>() : nullptr;
+    if (!AssetEditorSubsystem)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("AssetEditorSubsystem is unavailable"));
+    }
+
+    if (!AssetEditorSubsystem->OpenEditorForAsset(Blueprint))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to open blueprint editor: %s"), *BlueprintName));
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("success"), true);
+    Result->SetStringField(TEXT("blueprint_name"), BlueprintName);
+    Result->SetStringField(TEXT("asset_path"), FPackageName::ObjectPathToPackageName(Blueprint->GetPathName()));
+    return Result;
 }

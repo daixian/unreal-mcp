@@ -70,6 +70,13 @@ private:
     TSharedPtr<FJsonObject> HandleStartVRPreview(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 启动 Standalone Game（新进程）会话。
+     * @param [in] Params 启动参数（支持 map_override/additional_command_line_parameters）。
+     * @return TSharedPtr<FJsonObject> 启动结果。
+     */
+    TSharedPtr<FJsonObject> HandleStartStandaloneGame(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 停止当前 PIE 会话。
      * @param [in] Params 停止参数（当前未使用）。
      * @return TSharedPtr<FJsonObject> 停止结果。
@@ -175,6 +182,55 @@ private:
     TSharedPtr<FJsonObject> HandleSpawnBlueprintActor(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 复制指定 Actor。
+     * @param [in] Params 复制参数。
+     * @return TSharedPtr<FJsonObject> 复制结果。
+     */
+    TSharedPtr<FJsonObject> HandleDuplicateActor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 选中指定 Actor。
+     * @param [in] Params 选中参数。
+     * @return TSharedPtr<FJsonObject> 选中结果。
+     */
+    TSharedPtr<FJsonObject> HandleSelectActor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 获取当前选中的 Actor 列表。
+     * @param [in] Params 查询参数。
+     * @return TSharedPtr<FJsonObject> 选中 Actor 结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetSelectedActors(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 获取编辑器当前选中的 Actor 与资产。
+     * @param [in] Params 查询参数（支持 include_components/detailed_components/include_tags）。
+     * @return TSharedPtr<FJsonObject> 聚合后的选中结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetEditorSelection(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 将子 Actor 挂接到父 Actor。
+     * @param [in] Params 挂接参数。
+     * @return TSharedPtr<FJsonObject> 挂接结果。
+     */
+    TSharedPtr<FJsonObject> HandleAttachActor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 将 Actor 从父 Actor 分离。
+     * @param [in] Params 分离参数。
+     * @return TSharedPtr<FJsonObject> 分离结果。
+     */
+    TSharedPtr<FJsonObject> HandleDetachActor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 批量设置多个 Actor 的 Transform。
+     * @param [in] Params 批量变换参数。
+     * @return TSharedPtr<FJsonObject> 更新结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetActorsTransform(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 聚焦编辑器视口到目标 Actor 或指定位置。
      * @param [in] Params 视口控制参数。
      * @return TSharedPtr<FJsonObject> 执行结果。
@@ -187,6 +243,104 @@ private:
      * @return TSharedPtr<FJsonObject> 截图结果。
      */
     TSharedPtr<FJsonObject> HandleTakeScreenshot(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 请求一张高分辨率视口截图。
+     * @param [in] Params 截图参数（包含输出路径、分辨率等）。
+     * @return TSharedPtr<FJsonObject> 请求结果。
+     */
+    TSharedPtr<FJsonObject> HandleTakeHighResScreenshot(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 以连续帧的形式捕获当前视口。
+     * @param [in] Params 序列捕获参数（包含输出目录、帧数、间隔等）。
+     * @return TSharedPtr<FJsonObject> 请求结果。
+     */
+    TSharedPtr<FJsonObject> HandleCaptureViewportSequence(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 打开指定资产的编辑器。
+     * @param [in] Params 打开参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleOpenAssetEditor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 关闭指定资产的编辑器标签。
+     * @param [in] Params 关闭参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleCloseAssetEditor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 执行 Unreal 控制台命令。
+     * @param [in] Params 执行参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleExecuteConsoleCommand(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 执行 Unreal Python 命令或脚本。
+     * @param [in] Params 执行参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleExecuteUnrealPython(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 运行 Editor Utility Widget 并打开对应标签页。
+     * @param [in] Params 运行参数（包含 asset_path，可选 tab_id）。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleRunEditorUtilityWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 运行 Editor Utility Blueprint 的 Run 入口。
+     * @param [in] Params 运行参数（包含 asset_path）。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleRunEditorUtilityBlueprint(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 设置关卡视口显示模式。
+     * @param [in] Params 设置参数（包含 view_mode，可选 apply_to_all）。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetViewportMode(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 获取当前活动关卡视口的摄像机信息。
+     * @param [in] Params 查询参数（当前预留 apply_to_all 等扩展）。
+     * @return TSharedPtr<FJsonObject> 视口摄像机结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetViewportCamera(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 读取插件内部捕获的输出日志。
+     * @param [in] Params 查询参数。
+     * @return TSharedPtr<FJsonObject> 日志结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetOutputLog(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 清空插件内部捕获的输出日志缓冲。
+     * @param [in] Params 清空参数（当前未使用）。
+     * @return TSharedPtr<FJsonObject> 清空结果。
+     */
+    TSharedPtr<FJsonObject> HandleClearOutputLog(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 读取 Message Log 指定列表中的消息。
+     * @param [in] Params 查询参数。
+     * @return TSharedPtr<FJsonObject> 日志结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetMessageLog(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 发送一条编辑器通知。
+     * @param [in] Params 通知参数。
+     * @return TSharedPtr<FJsonObject> 执行结果。
+     */
+    TSharedPtr<FJsonObject> HandleShowEditorNotification(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 根据参数查找 Actor。

@@ -453,6 +453,39 @@ def register_editor_tools(mcp: FastMCP):
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
+    def start_standalone_game(
+        ctx: Context,
+        map_override: str = "",
+        additional_command_line_parameters: str = ""
+    ) -> Dict[str, Any]:
+        """Start Standalone Game in a new local process.
+
+        Args:
+            map_override: Optional map asset path to override the launched map
+            additional_command_line_parameters: Extra command line appended to the standalone process
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {}
+            if map_override:
+                params["map_override"] = map_override
+            if additional_command_line_parameters:
+                params["additional_command_line_parameters"] = additional_command_line_parameters
+
+            response = unreal.send_command("start_standalone_game", params)
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error starting Standalone Game: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
     def stop_pie(ctx: Context) -> Dict[str, Any]:
         """Stop the current Play-In-Editor (PIE) session."""
         from unreal_mcp_server import get_unreal_connection
@@ -757,6 +790,99 @@ def register_editor_tools(mcp: FastMCP):
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
+    def take_highres_screenshot(
+        ctx: Context,
+        filepath: str,
+        resolution: Optional[List[int]] = None,
+        resolution_multiplier: float = 1.0,
+        capture_hdr: bool = False
+    ) -> Dict[str, Any]:
+        """Capture a high-resolution screenshot of the active viewport.
+
+        Args:
+            filepath: Output file path. If no extension is provided, Unreal picks png/exr by hdr mode
+            resolution: Optional [Width, Height] target resolution
+            resolution_multiplier: Multiplier used when resolution is omitted
+            capture_hdr: Whether to capture HDR output
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "filepath": filepath,
+                "resolution_multiplier": resolution_multiplier,
+                "capture_hdr": capture_hdr,
+            }
+            if resolution:
+                params["resolution"] = resolution
+
+            response = unreal.send_command("take_highres_screenshot", params)
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error taking high-resolution screenshot: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def capture_viewport_sequence(
+        ctx: Context,
+        output_dir: str,
+        frame_count: int,
+        interval_seconds: float = 0.0,
+        base_filename: str = "ViewportSequence",
+        use_high_res: bool = False,
+        resolution: Optional[List[int]] = None,
+        resolution_multiplier: float = 1.0,
+        show_ui: bool = False,
+        capture_hdr: bool = False
+    ) -> Dict[str, Any]:
+        """Capture a sequence of viewport frames to disk.
+
+        Args:
+            output_dir: Output directory for the frame sequence
+            frame_count: Number of frames to capture
+            interval_seconds: Delay between frame requests
+            base_filename: Common filename prefix for output frames
+            use_high_res: Whether to use the high-resolution screenshot path for each frame
+            resolution: Optional [Width, Height] target resolution
+            resolution_multiplier: Multiplier used when resolution is omitted
+            show_ui: Whether standard screenshots should include editor UI
+            capture_hdr: Whether to write HDR frames
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "output_dir": output_dir,
+                "frame_count": frame_count,
+                "interval_seconds": interval_seconds,
+                "base_filename": base_filename,
+                "use_high_res": use_high_res,
+                "resolution_multiplier": resolution_multiplier,
+                "show_ui": show_ui,
+                "capture_hdr": capture_hdr,
+            }
+            if resolution:
+                params["resolution"] = resolution
+
+            response = unreal.send_command("capture_viewport_sequence", params)
+            return response or {}
+
+        except Exception as e:
+            logger.error(f"Error capturing viewport sequence: {e}")
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
     def spawn_blueprint_actor(
         ctx: Context,
         blueprint_name: str,
@@ -815,5 +941,450 @@ def register_editor_tools(mcp: FastMCP):
             error_msg = f"Error spawning blueprint actor: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def duplicate_actor(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        world_type: str = "auto",
+        offset: Optional[List[float]] = None
+    ) -> Dict[str, Any]:
+        """Duplicate a single actor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {"world_type": world_type}
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+            if offset is not None:
+                params["offset"] = offset
+
+            return unreal.send_command("duplicate_actor", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def select_actor(
+        ctx: Context,
+        name: str = "",
+        actor_path: str = "",
+        world_type: str = "auto",
+        replace_selection: bool = False,
+        notify: bool = True,
+        select_even_if_hidden: bool = True
+    ) -> Dict[str, Any]:
+        """Select an actor in the editor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "world_type": world_type,
+                "replace_selection": replace_selection,
+                "notify": notify,
+                "select_even_if_hidden": select_even_if_hidden
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+
+            return unreal.send_command("select_actor", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_selected_actors(
+        ctx: Context,
+        include_components: bool = False,
+        detailed_components: bool = True
+    ) -> Dict[str, Any]:
+        """Get actors currently selected in the editor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("get_selected_actors", {
+                "include_components": include_components,
+                "detailed_components": detailed_components
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_editor_selection(
+        ctx: Context,
+        include_components: bool = False,
+        detailed_components: bool = True,
+        include_tags: bool = False
+    ) -> Dict[str, Any]:
+        """Get the current editor selection including both actors and assets.
+
+        Args:
+            include_components: Whether selected actor payloads should include component lists
+            detailed_components: Whether actor components should include detailed fields
+            include_tags: Whether selected asset payloads should include tag metadata
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("get_editor_selection", {
+                "include_components": include_components,
+                "detailed_components": detailed_components,
+                "include_tags": include_tags
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def attach_actor(
+        ctx: Context,
+        name: str,
+        parent_name: str,
+        socket_name: str = "",
+        keep_world_transform: bool = True,
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Attach one actor to another actor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("attach_actor", {
+                "name": name,
+                "parent_name": parent_name,
+                "socket_name": socket_name,
+                "keep_world_transform": keep_world_transform,
+                "world_type": world_type
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def detach_actor(
+        ctx: Context,
+        name: str,
+        keep_world_transform: bool = True,
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Detach an actor from its parent actor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("detach_actor", {
+                "name": name,
+                "keep_world_transform": keep_world_transform,
+                "world_type": world_type
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def set_actors_transform(
+        ctx: Context,
+        actor_names: List[str],
+        location: Optional[List[float]] = None,
+        rotation: Optional[List[float]] = None,
+        scale: Optional[List[float]] = None,
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Set the same transform values on multiple actors."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "actor_names": actor_names,
+                "world_type": world_type
+            }
+            if location is not None:
+                params["location"] = location
+            if rotation is not None:
+                params["rotation"] = rotation
+            if scale is not None:
+                params["scale"] = scale
+
+            return unreal.send_command("set_actors_transform", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def open_asset_editor(ctx: Context, asset_path: str) -> Dict[str, Any]:
+        """Open the editor for any asset by content path."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("open_asset_editor", {
+                "asset_path": asset_path
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def close_asset_editor(ctx: Context, asset_path: str) -> Dict[str, Any]:
+        """Close the editor tab for any asset by content path."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("close_asset_editor", {
+                "asset_path": asset_path
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def execute_console_command(
+        ctx: Context,
+        command: str,
+        world_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Execute an Unreal console command."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("execute_console_command", {
+                "command": command,
+                "world_type": world_type
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def execute_unreal_python(
+        ctx: Context,
+        command: str,
+        execution_mode: str = "ExecuteStatement",
+        file_execution_scope: str = "Private",
+        unattended: bool = False
+    ) -> Dict[str, Any]:
+        """Execute Unreal Python using the PythonScriptPlugin."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("execute_unreal_python", {
+                "command": command,
+                "execution_mode": execution_mode,
+                "file_execution_scope": file_execution_scope,
+                "unattended": unattended
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def run_editor_utility_widget(
+        ctx: Context,
+        asset_path: str,
+        tab_id: str = ""
+    ) -> Dict[str, Any]:
+        """Run an Editor Utility Widget asset and open its tab.
+
+        Args:
+            asset_path: Content path of the Editor Utility Widget Blueprint
+            tab_id: Optional explicit tab id used for registration/spawn
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {"asset_path": asset_path}
+            if tab_id:
+                params["tab_id"] = tab_id
+
+            return unreal.send_command("run_editor_utility_widget", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def run_editor_utility_blueprint(
+        ctx: Context,
+        asset_path: str
+    ) -> Dict[str, Any]:
+        """Run an Editor Utility Blueprint asset via its Run entry."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("run_editor_utility_blueprint", {
+                "asset_path": asset_path
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def set_viewport_mode(
+        ctx: Context,
+        view_mode: str,
+        apply_to_all: bool = False
+    ) -> Dict[str, Any]:
+        """Set the active level viewport rendering mode.
+
+        Args:
+            view_mode: View mode name or numeric index, such as Lit, Unlit, Wireframe
+            apply_to_all: Whether to apply the mode to all level viewports
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("set_viewport_mode", {
+                "view_mode": view_mode,
+                "apply_to_all": apply_to_all
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_viewport_camera(ctx: Context) -> Dict[str, Any]:
+        """Get camera information for the active level viewport."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("get_viewport_camera", {}) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_output_log(
+        ctx: Context,
+        limit: int = 100,
+        category: str = "",
+        verbosity: str = "",
+        contains: str = ""
+    ) -> Dict[str, Any]:
+        """Get captured Unreal output log entries."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {"limit": limit}
+            if category:
+                params["category"] = category
+            if verbosity:
+                params["verbosity"] = verbosity
+            if contains:
+                params["contains"] = contains
+
+            return unreal.send_command("get_output_log", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def clear_output_log(ctx: Context) -> Dict[str, Any]:
+        """Clear the captured Unreal output log buffer."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("clear_output_log", {}) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_message_log(
+        ctx: Context,
+        log_name: str = "PIE",
+        limit: int = 100
+    ) -> Dict[str, Any]:
+        """Read messages from a named Unreal Message Log listing."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("get_message_log", {
+                "log_name": log_name,
+                "limit": limit
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def show_editor_notification(
+        ctx: Context,
+        message: str,
+        severity: str = "info",
+        expire_duration: float = 5.0,
+        fire_and_forget: bool = True
+    ) -> Dict[str, Any]:
+        """Show a transient notification in the Unreal Editor."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("show_editor_notification", {
+                "message": message,
+                "severity": severity,
+                "expire_duration": expire_duration,
+                "fire_and_forget": fire_and_forget
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
 
     logger.info("Editor tools registered successfully")

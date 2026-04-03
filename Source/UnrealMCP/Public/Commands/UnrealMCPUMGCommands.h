@@ -65,4 +65,116 @@ private:
      * @return TSharedPtr<FJsonObject> 绑定配置结果。
      */
     TSharedPtr<FJsonObject> HandleSetTextBlockBinding(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Image 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddImageToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Border 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddBorderToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Canvas Panel 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddCanvasPanelToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Horizontal Box 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddHorizontalBoxToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Vertical Box 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddVerticalBoxToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Overlay 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddOverlayToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Scroll Box 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddScrollBoxToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Size Box 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddSizeBoxToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Spacer 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddSpacerToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Progress Bar 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddProgressBarToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Slider 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddSliderToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Check Box 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddCheckBoxToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Editable Text 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddEditableTextToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加 Rich Text 控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddRichTextToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 向 UMG Widget Blueprint 添加多行文本控件。
+     * @param [in] Params 需包含蓝图名、控件名和可选布局参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddMultiLineTextToWidget(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 打开 Widget Blueprint 编辑器。
+     * @param [in] Params 需包含蓝图名。
+     * @return TSharedPtr<FJsonObject> 打开结果。
+     */
+    TSharedPtr<FJsonObject> HandleOpenWidgetBlueprintEditor(const TSharedPtr<FJsonObject>& Params);
 };
