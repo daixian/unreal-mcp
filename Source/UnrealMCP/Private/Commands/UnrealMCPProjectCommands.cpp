@@ -1076,94 +1076,14 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCommand(const FString& 
  */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCreateInputMapping(const TSharedPtr<FJsonObject>& Params)
 {
-    FString MappingName;
-    if (!UnrealMCPTryGetMappingName(Params, MappingName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'mapping_name' 或 'action_name' 参数"));
-    }
-
-    FString KeyName;
-    if (!Params->TryGetStringField(TEXT("key"), KeyName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'key' 参数"));
-    }
-
-    FKey MappingKey;
-    if (!UnrealMCPParseInputKey(KeyName, MappingKey))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("无效按键名: %s"), *KeyName));
-    }
-
-    UInputSettings* InputSettings = GetMutableDefault<UInputSettings>();
-    if (!InputSettings)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("获取输入设置失败"));
-    }
-
-    FString InputType = TEXT("Action");
-    Params->TryGetStringField(TEXT("input_type"), InputType);
-    const bool bIsAxisMapping = InputType.Equals(TEXT("Axis"), ESearchCase::IgnoreCase);
-
-    if (bIsAxisMapping)
-    {
-        float Scale = 1.0f;
-        Params->TryGetNumberField(TEXT("scale"), Scale);
-
-        FInputAxisKeyMapping AxisMapping;
-        AxisMapping.AxisName = FName(*MappingName);
-        AxisMapping.Key = MappingKey;
-        AxisMapping.Scale = Scale;
-
-        InputSettings->AddAxisMapping(AxisMapping, false);
-    }
-    else
-    {
-        FInputActionKeyMapping ActionMapping;
-        ActionMapping.ActionName = FName(*MappingName);
-        ActionMapping.Key = MappingKey;
-
-        if (Params->HasField(TEXT("shift")))
-        {
-            ActionMapping.bShift = Params->GetBoolField(TEXT("shift"));
-        }
-        if (Params->HasField(TEXT("ctrl")))
-        {
-            ActionMapping.bCtrl = Params->GetBoolField(TEXT("ctrl"));
-        }
-        if (Params->HasField(TEXT("alt")))
-        {
-            ActionMapping.bAlt = Params->GetBoolField(TEXT("alt"));
-        }
-        if (Params->HasField(TEXT("cmd")))
-        {
-            ActionMapping.bCmd = Params->GetBoolField(TEXT("cmd"));
-        }
-
-        InputSettings->AddActionMapping(ActionMapping, false);
-    }
-
-    UnrealMCPSaveInputSettings(InputSettings);
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetStringField(TEXT("mapping_name"), MappingName);
-    ResultObj->SetStringField(TEXT("key"), KeyName);
-    ResultObj->SetStringField(TEXT("input_type"), bIsAxisMapping ? TEXT("Axis") : TEXT("Action"));
-
-    if (bIsAxisMapping)
-    {
-        float Scale = 1.0f;
-        Params->TryGetNumberField(TEXT("scale"), Scale);
-        ResultObj->SetNumberField(TEXT("scale"), Scale);
-    }
-    else
-    {
-        ResultObj->SetBoolField(TEXT("shift"), Params->HasField(TEXT("shift")) ? Params->GetBoolField(TEXT("shift")) : false);
-        ResultObj->SetBoolField(TEXT("ctrl"), Params->HasField(TEXT("ctrl")) ? Params->GetBoolField(TEXT("ctrl")) : false);
-        ResultObj->SetBoolField(TEXT("alt"), Params->HasField(TEXT("alt")) ? Params->GetBoolField(TEXT("alt")) : false);
-        ResultObj->SetBoolField(TEXT("cmd"), Params->HasField(TEXT("cmd")) ? Params->GetBoolField(TEXT("cmd")) : false);
-    }
-
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.project.project_commands"),
+        TEXT("handle_project_command"),
+        Params->HasField(TEXT("input_type")) &&
+            Params->GetStringField(TEXT("input_type")).Equals(TEXT("Axis"), ESearchCase::IgnoreCase)
+            ? TEXT("create_input_axis_mapping")
+            : TEXT("create_input_mapping"),
+        Params);
 }
 
 /**
@@ -1173,76 +1093,11 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCreateInputMapping(cons
  */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleListInputMappings(const TSharedPtr<FJsonObject>& Params)
 {
-    UInputSettings* InputSettings = GetMutableDefault<UInputSettings>();
-    if (!InputSettings)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("获取输入设置失败"));
-    }
-
-    FString InputType = TEXT("All");
-    Params->TryGetStringField(TEXT("input_type"), InputType);
-    const bool bIncludeAction = !InputType.Equals(TEXT("Axis"), ESearchCase::IgnoreCase);
-    const bool bIncludeAxis = !InputType.Equals(TEXT("Action"), ESearchCase::IgnoreCase);
-
-    FString MappingNameFilter;
-    const bool bHasMappingNameFilter = UnrealMCPTryGetMappingName(Params, MappingNameFilter);
-
-    FString KeyFilterName;
-    const bool bHasKeyFilter = Params->TryGetStringField(TEXT("key"), KeyFilterName);
-    FKey KeyFilter;
-    if (bHasKeyFilter && !UnrealMCPParseInputKey(KeyFilterName, KeyFilter))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("无效按键名: %s"), *KeyFilterName));
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    TArray<TSharedPtr<FJsonValue>> ActionMappingsJson;
-    TArray<TSharedPtr<FJsonValue>> AxisMappingsJson;
-    int32 TotalCount = 0;
-
-    if (bIncludeAction)
-    {
-        for (const FInputActionKeyMapping& ActionMapping : InputSettings->GetActionMappings())
-        {
-            if (bHasMappingNameFilter && !ActionMapping.ActionName.ToString().Equals(MappingNameFilter, ESearchCase::IgnoreCase))
-            {
-                continue;
-            }
-
-            if (bHasKeyFilter && ActionMapping.Key != KeyFilter)
-            {
-                continue;
-            }
-
-            ActionMappingsJson.Add(MakeShared<FJsonValueObject>(UnrealMCPSerializeActionMapping(ActionMapping)));
-            ++TotalCount;
-        }
-    }
-
-    if (bIncludeAxis)
-    {
-        for (const FInputAxisKeyMapping& AxisMapping : InputSettings->GetAxisMappings())
-        {
-            if (bHasMappingNameFilter && !AxisMapping.AxisName.ToString().Equals(MappingNameFilter, ESearchCase::IgnoreCase))
-            {
-                continue;
-            }
-
-            if (bHasKeyFilter && AxisMapping.Key != KeyFilter)
-            {
-                continue;
-            }
-
-            AxisMappingsJson.Add(MakeShared<FJsonValueObject>(UnrealMCPSerializeAxisMapping(AxisMapping)));
-            ++TotalCount;
-        }
-    }
-
-    ResultObj->SetStringField(TEXT("input_type"), InputType);
-    ResultObj->SetArrayField(TEXT("action_mappings"), ActionMappingsJson);
-    ResultObj->SetArrayField(TEXT("axis_mappings"), AxisMappingsJson);
-    ResultObj->SetNumberField(TEXT("total_count"), TotalCount);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.project.project_commands"),
+        TEXT("handle_project_command"),
+        TEXT("list_input_mappings"),
+        Params);
 }
 
 /**
@@ -1252,124 +1107,11 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleListInputMappings(const
  */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleRemoveInputMapping(const TSharedPtr<FJsonObject>& Params)
 {
-    FString MappingName;
-    if (!UnrealMCPTryGetMappingName(Params, MappingName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'mapping_name' 或 'action_name' 参数"));
-    }
-
-    UInputSettings* InputSettings = GetMutableDefault<UInputSettings>();
-    if (!InputSettings)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("获取输入设置失败"));
-    }
-
-    FString InputType = TEXT("Action");
-    Params->TryGetStringField(TEXT("input_type"), InputType);
-    const bool bIsAxisMapping = InputType.Equals(TEXT("Axis"), ESearchCase::IgnoreCase);
-
-    FString KeyFilterName;
-    const bool bHasKeyFilter = Params->TryGetStringField(TEXT("key"), KeyFilterName);
-    FKey KeyFilter;
-    if (bHasKeyFilter && !UnrealMCPParseInputKey(KeyFilterName, KeyFilter))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("无效按键名: %s"), *KeyFilterName));
-    }
-
-    int32 RemovedCount = 0;
-
-    if (bIsAxisMapping)
-    {
-        float ScaleFilter = 1.0f;
-        const bool bHasScaleFilter = Params->TryGetNumberField(TEXT("scale"), ScaleFilter);
-        const TArray<FInputAxisKeyMapping> AxisMappings = InputSettings->GetAxisMappings();
-
-        for (const FInputAxisKeyMapping& AxisMapping : AxisMappings)
-        {
-            if (!AxisMapping.AxisName.ToString().Equals(MappingName, ESearchCase::IgnoreCase))
-            {
-                continue;
-            }
-
-            if (bHasKeyFilter && AxisMapping.Key != KeyFilter)
-            {
-                continue;
-            }
-
-            if (bHasScaleFilter && !FMath::IsNearlyEqual(AxisMapping.Scale, ScaleFilter))
-            {
-                continue;
-            }
-
-            InputSettings->RemoveAxisMapping(AxisMapping, false);
-            ++RemovedCount;
-        }
-    }
-    else
-    {
-        const bool bHasShiftFilter = Params->HasField(TEXT("shift"));
-        const bool bHasCtrlFilter = Params->HasField(TEXT("ctrl"));
-        const bool bHasAltFilter = Params->HasField(TEXT("alt"));
-        const bool bHasCmdFilter = Params->HasField(TEXT("cmd"));
-        const bool bShiftFilter = bHasShiftFilter ? Params->GetBoolField(TEXT("shift")) : false;
-        const bool bCtrlFilter = bHasCtrlFilter ? Params->GetBoolField(TEXT("ctrl")) : false;
-        const bool bAltFilter = bHasAltFilter ? Params->GetBoolField(TEXT("alt")) : false;
-        const bool bCmdFilter = bHasCmdFilter ? Params->GetBoolField(TEXT("cmd")) : false;
-        const TArray<FInputActionKeyMapping> ActionMappings = InputSettings->GetActionMappings();
-
-        for (const FInputActionKeyMapping& ActionMapping : ActionMappings)
-        {
-            if (!ActionMapping.ActionName.ToString().Equals(MappingName, ESearchCase::IgnoreCase))
-            {
-                continue;
-            }
-
-            if (bHasKeyFilter && ActionMapping.Key != KeyFilter)
-            {
-                continue;
-            }
-
-            if (bHasShiftFilter && ActionMapping.bShift != bShiftFilter)
-            {
-                continue;
-            }
-
-            if (bHasCtrlFilter && ActionMapping.bCtrl != bCtrlFilter)
-            {
-                continue;
-            }
-
-            if (bHasAltFilter && ActionMapping.bAlt != bAltFilter)
-            {
-                continue;
-            }
-
-            if (bHasCmdFilter && ActionMapping.bCmd != bCmdFilter)
-            {
-                continue;
-            }
-
-            InputSettings->RemoveActionMapping(ActionMapping, false);
-            ++RemovedCount;
-        }
-    }
-
-    if (RemovedCount <= 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("没有找到可删除的输入映射: %s"), *MappingName));
-    }
-
-    UnrealMCPSaveInputSettings(InputSettings);
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetStringField(TEXT("mapping_name"), MappingName);
-    ResultObj->SetStringField(TEXT("input_type"), bIsAxisMapping ? TEXT("Axis") : TEXT("Action"));
-    ResultObj->SetNumberField(TEXT("removed_count"), RemovedCount);
-    if (bHasKeyFilter)
-    {
-        ResultObj->SetStringField(TEXT("key"), KeyFilterName);
-    }
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.project.project_commands"),
+        TEXT("handle_project_command"),
+        TEXT("remove_input_mapping"),
+        Params);
 }
 
 /**
@@ -1379,89 +1121,11 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleRemoveInputMapping(cons
  */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCreateInputActionAsset(const TSharedPtr<FJsonObject>& Params)
 {
-    FString ActionNameText;
-    if (!Params->TryGetStringField(TEXT("action_name"), ActionNameText))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'action_name' 参数"));
-    }
-
-    FString PackagePath;
-    FString ErrorMessage;
-    if (!UnrealMCPNormalizePackagePath(
-        Params->HasField(TEXT("path")) ? Params->GetStringField(TEXT("path")) : TEXT(""),
-        TEXT("/Game/Input"),
-        PackagePath,
-        ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString AssetName;
-    FString AssetPath;
-    if (!UnrealMCPBuildAssetPath(ActionNameText, PackagePath, AssetName, AssetPath, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    if (!UEditorAssetLibrary::DoesDirectoryExist(PackagePath) && !UEditorAssetLibrary::MakeDirectory(PackagePath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("创建目录失败: %s"), *PackagePath));
-    }
-
-    if (UEditorAssetLibrary::DoesAssetExist(AssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Input Action 已存在: %s"), *AssetPath));
-    }
-
-    UPackage* Package = CreatePackage(*AssetPath);
-    if (!Package)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("创建资源包失败: %s"), *AssetPath));
-    }
-
-    UInputAction* InputAction = NewObject<UInputAction>(Package, *AssetName, RF_Public | RF_Standalone);
-    if (!InputAction)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("创建 Input Action 失败"));
-    }
-
-    EInputActionValueType ValueType = EInputActionValueType::Boolean;
-    if (Params->HasField(TEXT("value_type")) &&
-        !UnrealMCPParseInputActionValueType(Params->GetStringField(TEXT("value_type")), ValueType))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("无效 value_type，可选值: Boolean/Axis1D/Axis2D/Axis3D"));
-    }
-
-    EInputActionAccumulationBehavior AccumulationBehavior = EInputActionAccumulationBehavior::TakeHighestAbsoluteValue;
-    if (Params->HasField(TEXT("accumulation_behavior")) &&
-        !UnrealMCPParseAccumulationBehavior(Params->GetStringField(TEXT("accumulation_behavior")), AccumulationBehavior))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("无效 accumulation_behavior，可选值: TakeHighestAbsoluteValue/Cumulative"));
-    }
-
-    InputAction->ValueType = ValueType;
-    InputAction->AccumulationBehavior = AccumulationBehavior;
-    Params->TryGetBoolField(TEXT("consume_input"), InputAction->bConsumeInput);
-    Params->TryGetBoolField(TEXT("trigger_when_paused"), InputAction->bTriggerWhenPaused);
-    Params->TryGetBoolField(TEXT("consume_legacy_keys"), InputAction->bConsumesActionAndAxisMappings);
-
-    Package->MarkPackageDirty();
-    FAssetRegistryModule::AssetCreated(InputAction);
-    if (!UEditorAssetLibrary::SaveAsset(AssetPath, false))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("保存 Input Action 失败: %s"), *AssetPath));
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetStringField(TEXT("action_name"), AssetName);
-    ResultObj->SetStringField(TEXT("asset_path"), AssetPath);
-    ResultObj->SetStringField(TEXT("value_type"), UnrealMCPInputActionValueTypeToString(InputAction->ValueType));
-    ResultObj->SetStringField(TEXT("accumulation_behavior"), UnrealMCPAccumulationBehaviorToString(InputAction->AccumulationBehavior));
-    ResultObj->SetBoolField(TEXT("consume_input"), InputAction->bConsumeInput);
-    ResultObj->SetBoolField(TEXT("trigger_when_paused"), InputAction->bTriggerWhenPaused);
-    ResultObj->SetBoolField(TEXT("consume_legacy_keys"), InputAction->bConsumesActionAndAxisMappings);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.project.project_commands"),
+        TEXT("handle_project_command"),
+        TEXT("create_input_action_asset"),
+        Params);
 }
 
 /**
@@ -1471,92 +1135,11 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCreateInputActionAsset(
  */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCreateInputMappingContext(const TSharedPtr<FJsonObject>& Params)
 {
-    FString ContextNameText;
-    if (!Params->TryGetStringField(TEXT("context_name"), ContextNameText))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'context_name' 参数"));
-    }
-
-    FString PackagePath;
-    FString ErrorMessage;
-    if (!UnrealMCPNormalizePackagePath(
-        Params->HasField(TEXT("path")) ? Params->GetStringField(TEXT("path")) : TEXT(""),
-        TEXT("/Game/Input"),
-        PackagePath,
-        ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString AssetName;
-    FString AssetPath;
-    if (!UnrealMCPBuildAssetPath(ContextNameText, PackagePath, AssetName, AssetPath, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    if (!UEditorAssetLibrary::DoesDirectoryExist(PackagePath) && !UEditorAssetLibrary::MakeDirectory(PackagePath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("创建目录失败: %s"), *PackagePath));
-    }
-
-    if (UEditorAssetLibrary::DoesAssetExist(AssetPath))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Input Mapping Context 已存在: %s"), *AssetPath));
-    }
-
-    UPackage* Package = CreatePackage(*AssetPath);
-    if (!Package)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("创建资源包失败: %s"), *AssetPath));
-    }
-
-    UInputMappingContext* MappingContext = NewObject<UInputMappingContext>(Package, *AssetName, RF_Public | RF_Standalone);
-    if (!MappingContext)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("创建 Input Mapping Context 失败"));
-    }
-
-    if (Params->HasField(TEXT("description")))
-    {
-        MappingContext->ContextDescription = FText::FromString(Params->GetStringField(TEXT("description")));
-    }
-
-    EMappingContextRegistrationTrackingMode TrackingMode = EMappingContextRegistrationTrackingMode::Untracked;
-    if (Params->HasField(TEXT("registration_tracking_mode")) &&
-        !UnrealMCPParseRegistrationTrackingMode(Params->GetStringField(TEXT("registration_tracking_mode")), TrackingMode))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("无效 registration_tracking_mode，可选值: Untracked/CountRegistrations"));
-    }
-
-    if (TrackingMode != EMappingContextRegistrationTrackingMode::Untracked)
-    {
-        FString PropertyErrorMessage;
-        if (!FUnrealMCPCommonUtils::SetObjectProperty(
-            MappingContext,
-            TEXT("RegistrationTrackingMode"),
-            MakeShared<FJsonValueString>(UnrealMCPRegistrationTrackingModeToString(TrackingMode)),
-            PropertyErrorMessage))
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(PropertyErrorMessage);
-        }
-    }
-
-    Package->MarkPackageDirty();
-    FAssetRegistryModule::AssetCreated(MappingContext);
-    if (!UEditorAssetLibrary::SaveAsset(AssetPath, false))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("保存 Input Mapping Context 失败: %s"), *AssetPath));
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetStringField(TEXT("context_name"), AssetName);
-    ResultObj->SetStringField(TEXT("asset_path"), AssetPath);
-    ResultObj->SetStringField(TEXT("description"), MappingContext->ContextDescription.ToString());
-    ResultObj->SetStringField(TEXT("registration_tracking_mode"), UnrealMCPRegistrationTrackingModeToString(TrackingMode));
-    ResultObj->SetNumberField(TEXT("mapping_count"), MappingContext->GetMappings().Num());
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.project.project_commands"),
+        TEXT("handle_project_command"),
+        TEXT("create_input_mapping_context"),
+        Params);
 }
 
 /**
@@ -1566,76 +1149,11 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleCreateInputMappingConte
  */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleAddMappingToContext(const TSharedPtr<FJsonObject>& Params)
 {
-    FString MappingContextReference;
-    if (!Params->TryGetStringField(TEXT("mapping_context"), MappingContextReference))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'mapping_context' 参数"));
-    }
-
-    FString InputActionReference;
-    if (!Params->TryGetStringField(TEXT("input_action"), InputActionReference))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'input_action' 参数"));
-    }
-
-    FString KeyName;
-    if (!Params->TryGetStringField(TEXT("key"), KeyName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'key' 参数"));
-    }
-
-    UInputMappingContext* MappingContext = nullptr;
-    FString ErrorMessage;
-    if (!UnrealMCPResolveAssetByReference<UInputMappingContext>(MappingContextReference, MappingContext, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UInputAction* InputAction = nullptr;
-    if (!UnrealMCPResolveAssetByReference<UInputAction>(InputActionReference, InputAction, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FKey MappingKey;
-    if (!UnrealMCPParseInputKey(KeyName, MappingKey))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("无效按键名: %s"), *KeyName));
-    }
-
-    MappingContext->Modify();
-    const int32 MappingIndex = MappingContext->GetMappings().Num();
-    FEnhancedActionKeyMapping& NewMapping = MappingContext->MapKey(InputAction, MappingKey);
-    UPackage* Package = MappingContext->GetOutermost();
-    if (Package)
-    {
-        Package->MarkPackageDirty();
-    }
-
-    const FString MappingContextPath = FPackageName::ObjectPathToPackageName(MappingContext->GetPathName());
-    if (!UEditorAssetLibrary::SaveAsset(MappingContextPath, false))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("保存 Input Mapping Context 失败: %s"), *MappingContextPath));
-    }
-
-    FName MappingName = NewMapping.GetMappingName();
-    if (MappingName.IsNone())
-    {
-        MappingName = FName(*InputAction->GetName());
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetStringField(TEXT("mapping_context"), MappingContext->GetName());
-    ResultObj->SetStringField(TEXT("mapping_context_path"), MappingContextPath);
-    ResultObj->SetStringField(TEXT("input_action"), InputAction->GetName());
-    ResultObj->SetStringField(TEXT("input_action_path"), FPackageName::ObjectPathToPackageName(InputAction->GetPathName()));
-    ResultObj->SetStringField(TEXT("key"), MappingKey.GetFName().ToString());
-    ResultObj->SetStringField(TEXT("value_type"), UnrealMCPInputActionValueTypeToString(InputAction->ValueType));
-    ResultObj->SetNumberField(TEXT("mapping_index"), MappingIndex);
-    ResultObj->SetNumberField(TEXT("mapping_count"), MappingContext->GetMappings().Num());
-    ResultObj->SetStringField(TEXT("mapping_name"), MappingName.ToString());
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.project.project_commands"),
+        TEXT("handle_project_command"),
+        TEXT("add_mapping_to_context"),
+        Params);
 }
 
 /**
@@ -1645,128 +1163,11 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleAddMappingToContext(con
  */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleAssignMappingContext(const TSharedPtr<FJsonObject>& Params)
 {
-    FString MappingContextReference;
-    if (!Params->TryGetStringField(TEXT("mapping_context"), MappingContextReference))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'mapping_context' 参数"));
-    }
-
-    UInputMappingContext* MappingContext = nullptr;
-    FString ErrorMessage;
-    if (!UnrealMCPResolveAssetByReference<UInputMappingContext>(MappingContextReference, MappingContext, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString ResolvedWorldType;
-    UWorld* World = UnrealMCPResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
-    if (!World)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    double PriorityNumber = 0.0;
-    Params->TryGetNumberField(TEXT("priority"), PriorityNumber);
-    const int32 Priority = static_cast<int32>(PriorityNumber);
-
-    double PlayerIndexNumber = 0.0;
-    Params->TryGetNumberField(TEXT("player_index"), PlayerIndexNumber);
-    const int32 PlayerIndex = static_cast<int32>(PlayerIndexNumber);
-
-    AActor* TargetActor = nullptr;
-    APlayerController* TargetController = nullptr;
-    if (Params->HasField(TEXT("name")) || Params->HasField(TEXT("actor_path")))
-    {
-        TargetActor = UnrealMCPResolveActorByParams(Params, World, ErrorMessage);
-        if (!TargetActor)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-        }
-
-        if (APlayerController* PlayerController = Cast<APlayerController>(TargetActor))
-        {
-            TargetController = PlayerController;
-        }
-        else if (APawn* Pawn = Cast<APawn>(TargetActor))
-        {
-            TargetController = Cast<APlayerController>(Pawn->GetController());
-            if (!TargetController)
-            {
-                return FUnrealMCPCommonUtils::CreateErrorResponse(
-                    FString::Printf(TEXT("Pawn 当前没有本地 PlayerController: %s"), *Pawn->GetName()));
-            }
-        }
-        else
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("assign_mapping_context 只能绑定到 Pawn 或 PlayerController"));
-        }
-    }
-    else
-    {
-        TargetController = UGameplayStatics::GetPlayerController(World, PlayerIndex);
-    }
-
-    if (!TargetController)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("找不到本地 PlayerController，player_index=%d"), PlayerIndex));
-    }
-
-    ULocalPlayer* LocalPlayer = TargetController->GetLocalPlayer();
-    if (!LocalPlayer)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("PlayerController 不是本地玩家控制器: %s"), *TargetController->GetName()));
-    }
-
-    UEnhancedInputLocalPlayerSubsystem* InputSubsystem = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
-    if (!InputSubsystem)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("获取 UEnhancedInputLocalPlayerSubsystem 失败"));
-    }
-
-    bool bClearExisting = false;
-    Params->TryGetBoolField(TEXT("clear_existing"), bClearExisting);
-
-    FModifyContextOptions ModifyContextOptions;
-    bool bIgnorePressedKeys = ModifyContextOptions.bIgnoreAllPressedKeysUntilRelease;
-    bool bForceImmediately = ModifyContextOptions.bForceImmediately;
-    bool bNotifyUserSettings = ModifyContextOptions.bNotifyUserSettings;
-    Params->TryGetBoolField(TEXT("ignore_all_pressed_keys_until_release"), bIgnorePressedKeys);
-    Params->TryGetBoolField(TEXT("force_immediately"), bForceImmediately);
-    Params->TryGetBoolField(TEXT("notify_user_settings"), bNotifyUserSettings);
-    ModifyContextOptions.bIgnoreAllPressedKeysUntilRelease = bIgnorePressedKeys;
-    ModifyContextOptions.bForceImmediately = bForceImmediately;
-    ModifyContextOptions.bNotifyUserSettings = bNotifyUserSettings;
-
-    if (bClearExisting)
-    {
-        InputSubsystem->ClearAllMappings();
-    }
-
-    InputSubsystem->AddMappingContext(MappingContext, Priority, ModifyContextOptions);
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetStringField(TEXT("mapping_context"), MappingContext->GetName());
-    ResultObj->SetStringField(TEXT("mapping_context_path"), FPackageName::ObjectPathToPackageName(MappingContext->GetPathName()));
-    ResultObj->SetNumberField(TEXT("priority"), Priority);
-    ResultObj->SetNumberField(TEXT("player_index"), PlayerIndex);
-    ResultObj->SetBoolField(TEXT("clear_existing"), bClearExisting);
-    ResultObj->SetBoolField(TEXT("ignore_all_pressed_keys_until_release"), ModifyContextOptions.bIgnoreAllPressedKeysUntilRelease);
-    ResultObj->SetBoolField(TEXT("force_immediately"), ModifyContextOptions.bForceImmediately);
-    ResultObj->SetBoolField(TEXT("notify_user_settings"), ModifyContextOptions.bNotifyUserSettings);
-    ResultObj->SetStringField(TEXT("controller_name"), TargetController->GetName());
-    ResultObj->SetStringField(TEXT("controller_path"), TargetController->GetPathName());
-    if (TargetActor)
-    {
-        ResultObj->SetStringField(TEXT("target_actor_name"), TargetActor->GetName());
-        ResultObj->SetStringField(TEXT("target_actor_path"), TargetActor->GetPathName());
-        ResultObj->SetStringField(TEXT("target_actor_class"), TargetActor->GetClass()->GetName());
-    }
-
-    UnrealMCPAppendWorldInfo(ResultObj, World, ResolvedWorldType);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.project.project_commands"),
+        TEXT("handle_project_command"),
+        TEXT("assign_mapping_context"),
+        Params);
 }
 
 /**
@@ -1776,50 +1177,11 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleAssignMappingContext(co
  */
 TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleGetProjectSetting(const TSharedPtr<FJsonObject>& Params)
 {
-    FString SettingsClassText;
-    if (!Params->TryGetStringField(TEXT("settings_class"), SettingsClassText))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'settings_class' 参数"));
-    }
-
-    FString PropertyName;
-    if (!UnrealMCPTryGetProjectPropertyName(Params, PropertyName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'property_name' 参数"));
-    }
-
-    UObject* SettingsObject = nullptr;
-    FString ResolvedSettingsClass;
-    FString ErrorMessage;
-    if (!UnrealMCPResolveSupportedSettingsObject(SettingsClassText, SettingsObject, ResolvedSettingsClass, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FProperty* Property = SettingsObject->GetClass()->FindPropertyByName(FName(*PropertyName));
-    if (!Property)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("设置 %s 上不存在属性: %s"), *ResolvedSettingsClass, *PropertyName));
-    }
-
-    TSharedPtr<FJsonValue> PropertyValue;
-    FString ExportedValue;
-    if (!UnrealMCPExportProjectPropertyValue(SettingsObject, Property, PropertyValue, ExportedValue))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("读取属性失败: %s.%s"), *ResolvedSettingsClass, *Property->GetName()));
-    }
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetBoolField(TEXT("success"), true);
-    ResultObj->SetStringField(TEXT("settings_class"), ResolvedSettingsClass);
-    ResultObj->SetStringField(TEXT("property_name"), Property->GetName());
-    ResultObj->SetStringField(TEXT("property_cpp_type"), Property->GetCPPType());
-    ResultObj->SetStringField(TEXT("exported_value"), ExportedValue);
-    ResultObj->SetField(TEXT("value"), PropertyValue);
-    ResultObj->SetStringField(TEXT("config_file"), SettingsObject->GetDefaultConfigFilename());
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.project.project_commands"),
+        TEXT("handle_project_command"),
+        TEXT("get_project_setting"),
+        Params);
 }
 
 /**
@@ -1853,6 +1215,15 @@ TSharedPtr<FJsonObject> FUnrealMCPProjectCommands::HandleSetProjectSetting(const
     if (!UnrealMCPResolveSupportedSettingsObject(SettingsClassText, SettingsObject, ResolvedSettingsClass, ErrorMessage))
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
+    }
+
+    if (ResolvedSettingsClass.Equals(TEXT("InputSettings"), ESearchCase::CaseSensitive))
+    {
+        return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+            TEXT("commands.project.project_commands"),
+            TEXT("handle_project_command"),
+            TEXT("set_project_setting"),
+            Params);
     }
 
     FProperty* Property = SettingsObject->GetClass()->FindPropertyByName(FName(*PropertyName));

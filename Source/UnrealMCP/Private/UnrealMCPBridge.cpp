@@ -333,6 +333,10 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("get_scene_components") ||
                      CommandType == TEXT("get_world_settings") ||
                      CommandType == TEXT("set_world_settings") ||
+                     CommandType == TEXT("get_data_layers") ||
+                     CommandType == TEXT("create_data_layer") ||
+                     CommandType == TEXT("set_actor_data_layers") ||
+                     CommandType == TEXT("set_data_layer_state") ||
                      CommandType == TEXT("set_actor_property") ||
                      CommandType == TEXT("set_actor_tags") ||
                      CommandType == TEXT("set_actor_folder_path") ||
@@ -349,6 +353,8 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("set_post_process_settings") ||
                      CommandType == TEXT("attach_actor") ||
                      CommandType == TEXT("detach_actor") ||
+                     CommandType == TEXT("add_component_to_actor") ||
+                     CommandType == TEXT("remove_component_from_actor") ||
                      CommandType == TEXT("set_actors_transform") ||
                      CommandType == TEXT("focus_viewport") || 
                      CommandType == TEXT("take_screenshot") ||
@@ -365,6 +371,10 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("get_output_log") ||
                      CommandType == TEXT("clear_output_log") ||
                      CommandType == TEXT("get_message_log") ||
+                     CommandType == TEXT("line_trace") ||
+                     CommandType == TEXT("box_trace") ||
+                     CommandType == TEXT("sphere_trace") ||
+                     CommandType == TEXT("get_hit_result_under_cursor") ||
                      CommandType == TEXT("show_editor_notification"))
             {
                 ResultJson = EditorCommands->HandleCommand(CommandType, Params);
@@ -375,6 +385,15 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("get_asset_dependencies") ||
                      CommandType == TEXT("get_asset_referencers") ||
                      CommandType == TEXT("create_asset") ||
+                     CommandType == TEXT("create_data_asset") ||
+                     CommandType == TEXT("create_primary_data_asset") ||
+                     CommandType == TEXT("create_curve") ||
+                     CommandType == TEXT("create_data_table") ||
+                     CommandType == TEXT("get_data_table_rows") ||
+                     CommandType == TEXT("import_data_table") ||
+                     CommandType == TEXT("set_data_table_row") ||
+                     CommandType == TEXT("export_data_table") ||
+                     CommandType == TEXT("remove_data_table_row") ||
                      CommandType == TEXT("save_asset") ||
                      CommandType == TEXT("import_asset") ||
                      CommandType == TEXT("export_asset") ||
@@ -413,19 +432,31 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                 }
             // Blueprint Commands
             else if (CommandType == TEXT("create_blueprint") || 
+                     CommandType == TEXT("create_child_blueprint") ||
                      CommandType == TEXT("add_component_to_blueprint") || 
+                     CommandType == TEXT("remove_component_from_blueprint") ||
+                     CommandType == TEXT("attach_component_in_blueprint") ||
                      CommandType == TEXT("set_component_property") || 
                      CommandType == TEXT("set_physics_properties") || 
                      CommandType == TEXT("compile_blueprint") || 
+                     CommandType == TEXT("compile_blueprints") ||
                      CommandType == TEXT("cleanup_blueprint_for_reparent") ||
                      CommandType == TEXT("set_blueprint_property") || 
                      CommandType == TEXT("set_game_mode_default_pawn") ||
                      CommandType == TEXT("set_static_mesh_properties") ||
                      CommandType == TEXT("set_pawn_properties") ||
+                     CommandType == TEXT("add_blueprint_variable") ||
                      CommandType == TEXT("delete_blueprint_variable") ||
+                     CommandType == TEXT("remove_unused_blueprint_variables") ||
+                     CommandType == TEXT("add_blueprint_interface") ||
                      CommandType == TEXT("set_blueprint_variable_default") ||
+                     CommandType == TEXT("add_blueprint_function") ||
+                     CommandType == TEXT("delete_blueprint_function") ||
+                     CommandType == TEXT("get_blueprint_compile_errors") ||
+                     CommandType == TEXT("rename_blueprint_member") ||
                      CommandType == TEXT("save_blueprint") ||
-                     CommandType == TEXT("open_blueprint_editor"))
+                     CommandType == TEXT("open_blueprint_editor") ||
+                     CommandType == TEXT("reparent_blueprint"))
             {
                 ResultJson = BlueprintCommands->HandleCommand(CommandType, Params);
             }
@@ -452,8 +483,7 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("add_blueprint_event_node") ||
                      CommandType == TEXT("add_blueprint_input_action_node") ||
                      CommandType == TEXT("add_blueprint_function_node") ||
-                     CommandType == TEXT("add_blueprint_get_component_node") ||
-                     CommandType == TEXT("add_blueprint_variable"))
+                     CommandType == TEXT("add_blueprint_get_component_node"))
             {
                 ResultJson = BlueprintNodeCommands->HandleCommand(CommandType, Params);
             }
@@ -479,7 +509,9 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("add_button_to_widget") ||
                      CommandType == TEXT("bind_widget_event") ||
                      CommandType == TEXT("set_text_block_binding") ||
+                     CommandType == TEXT("bind_widget_property") ||
                      CommandType == TEXT("add_widget_to_viewport") ||
+                     CommandType == TEXT("remove_widget_from_viewport") ||
                      CommandType == TEXT("add_image_to_widget") ||
                      CommandType == TEXT("add_border_to_widget") ||
                      CommandType == TEXT("add_canvas_panel_to_widget") ||
@@ -495,6 +527,17 @@ FString UUnrealMCPBridge::ExecuteCommand(const FString& CommandType, const TShar
                      CommandType == TEXT("add_editable_text_to_widget") ||
                      CommandType == TEXT("add_rich_text_to_widget") ||
                      CommandType == TEXT("add_multi_line_text_to_widget") ||
+                     CommandType == TEXT("add_named_slot_to_widget") ||
+                     CommandType == TEXT("add_list_view_to_widget") ||
+                     CommandType == TEXT("add_tile_view_to_widget") ||
+                     CommandType == TEXT("add_tree_view_to_widget") ||
+                     CommandType == TEXT("remove_widget_from_blueprint") ||
+                     CommandType == TEXT("set_widget_slot_layout") ||
+                     CommandType == TEXT("set_widget_visibility") ||
+                     CommandType == TEXT("set_widget_style") ||
+                     CommandType == TEXT("set_widget_brush") ||
+                     CommandType == TEXT("create_widget_animation") ||
+                     CommandType == TEXT("add_widget_animation_keyframe") ||
                      CommandType == TEXT("open_widget_blueprint_editor"))
             {
                 ResultJson = UMGCommands->HandleCommand(CommandType, Params);

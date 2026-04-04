@@ -240,10 +240,13 @@ class EditorCommandDispatcher:
         self._actor_query_helper = ActorQueryHelper(self._selection_serializer)
         self._actor_edit_helper = ActorEditHelper(self._selection_serializer, self._actor_query_helper)
         self._world_settings_helper = WorldSettingsCommandHelper(self._actor_query_helper)
+        self._data_layer_helper = DataLayerCommandHelper(self._actor_query_helper)
         self._viewport_helper = ViewportCommandHelper(self._actor_query_helper)
         self._utility_helper = EditorUtilityCommandHelper()
+        self._runtime_helper = EditorRuntimeCommandHelper(self._actor_query_helper)
         self._light_helper = LightCommandHelper(self._selection_serializer)
         self._render_helper = RenderCommandHelper(self._selection_serializer)
+        self._trace_helper = TraceCommandHelper(self._actor_query_helper, self._selection_serializer)
 
     def handle(self, command_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         if command_name == "load_level":
@@ -296,12 +299,34 @@ class EditorCommandDispatcher:
             return self._handle_get_world_settings(params)
         if command_name == "set_world_settings":
             return self._handle_set_world_settings(params)
+        if command_name == "get_data_layers":
+            return self._handle_get_data_layers(params)
+        if command_name == "create_data_layer":
+            return self._handle_create_data_layer(params)
+        if command_name == "set_actor_data_layers":
+            return self._handle_set_actor_data_layers(params)
+        if command_name == "set_data_layer_state":
+            return self._handle_set_data_layer_state(params)
+        if command_name == "line_trace":
+            return self._handle_line_trace(params)
+        if command_name == "box_trace":
+            return self._handle_box_trace(params)
+        if command_name == "sphere_trace":
+            return self._handle_sphere_trace(params)
+        if command_name == "get_hit_result_under_cursor":
+            return self._handle_get_hit_result_under_cursor(params)
         if command_name == "focus_viewport":
             return self._handle_focus_viewport(params)
+        if command_name == "set_viewport_mode":
+            return self._handle_set_viewport_mode(params)
+        if command_name == "get_viewport_camera":
+            return self._handle_get_viewport_camera(params)
         if command_name == "run_editor_utility_widget":
             return self._handle_run_editor_utility_widget(params)
         if command_name == "run_editor_utility_blueprint":
             return self._handle_run_editor_utility_blueprint(params)
+        if command_name == "execute_console_command":
+            return self._handle_execute_console_command(params)
         if command_name == "get_selected_actors":
             return self._handle_get_selected_actors(params)
         if command_name == "get_editor_selection":
@@ -318,6 +343,10 @@ class EditorCommandDispatcher:
             return self._handle_attach_actor(params)
         if command_name == "detach_actor":
             return self._handle_detach_actor(params)
+        if command_name == "add_component_to_actor":
+            return self._handle_add_component_to_actor(params)
+        if command_name == "remove_component_from_actor":
+            return self._handle_remove_component_from_actor(params)
         raise EditorCommandError(f"不支持的本地编辑器命令: {command_name}")
 
     def _handle_load_level(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -433,14 +462,47 @@ class EditorCommandDispatcher:
     def _handle_set_world_settings(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self._world_settings_helper.set_world_settings(params)
 
+    def _handle_get_data_layers(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_layer_helper.get_data_layers(params)
+
+    def _handle_create_data_layer(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_layer_helper.create_data_layer(params)
+
+    def _handle_set_actor_data_layers(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_layer_helper.set_actor_data_layers(params)
+
+    def _handle_set_data_layer_state(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_layer_helper.set_data_layer_state(params)
+
+    def _handle_line_trace(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._trace_helper.line_trace(params)
+
+    def _handle_box_trace(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._trace_helper.box_trace(params)
+
+    def _handle_sphere_trace(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._trace_helper.sphere_trace(params)
+
+    def _handle_get_hit_result_under_cursor(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._trace_helper.get_hit_result_under_cursor(params)
+
     def _handle_focus_viewport(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self._viewport_helper.focus_viewport(params)
+
+    def _handle_set_viewport_mode(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._viewport_helper.set_viewport_mode(params)
+
+    def _handle_get_viewport_camera(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._viewport_helper.get_viewport_camera(params)
 
     def _handle_run_editor_utility_widget(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self._utility_helper.run_editor_utility_widget(params)
 
     def _handle_run_editor_utility_blueprint(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self._utility_helper.run_editor_utility_blueprint(params)
+
+    def _handle_execute_console_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._runtime_helper.execute_console_command(params)
 
     def _handle_get_selected_actors(self, params: Dict[str, Any]) -> Dict[str, Any]:
         include_components = bool(params.get("include_components", False))
@@ -508,6 +570,12 @@ class EditorCommandDispatcher:
 
     def _handle_detach_actor(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self._actor_edit_helper.detach_actor(params)
+
+    def _handle_add_component_to_actor(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._actor_edit_helper.add_component_to_actor(params)
+
+    def _handle_remove_component_from_actor(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._actor_edit_helper.remove_component_from_actor(params)
 
     @staticmethod
     def _require_string(params: Dict[str, Any], field_name: str) -> str:
@@ -593,15 +661,25 @@ class ActorQueryHelper:
         include_components = bool(params.get("include_components", False))
         detailed_components = bool(params.get("detailed_components", True))
         resolved_world = self._resolve_world(str(params.get("world_type", "auto")))
+        filters = self._build_actor_filters({
+            "name_pattern": pattern,
+            "class_name": params.get("class_name", ""),
+            "path_contains": params.get("path_contains", ""),
+            "tag": params.get("tag", ""),
+            "tags": params.get("tags", []),
+            "sort_by": params.get("sort_by", "name"),
+            "sort_desc": params.get("sort_desc", False),
+        })
         matching_actors = [
             actor
             for actor in self._get_all_actors(resolved_world.world)
-            if actor and pattern in actor.get_name()
+            if actor and self._actor_matches_filters(actor, filters)
         ]
+        sorted_actors = self._sort_actors(matching_actors, filters["sort_by"], filters["sort_desc"])
 
         actor_payload = [
             self._serializer.serialize_actor(actor, include_components, detailed_components)
-            for actor in matching_actors
+            for actor in sorted_actors
         ]
 
         result = {
@@ -609,6 +687,14 @@ class ActorQueryHelper:
             "pattern": pattern,
             "actors": actor_payload,
             "actor_count": len(actor_payload),
+            "filters": {
+                "pattern": pattern,
+                "class_name": filters["class_name"],
+                "path_contains": filters["path_contains"],
+                "tags": list(filters["tags"]),
+                "sort_by": filters["sort_by"],
+                "sort_desc": filters["sort_desc"],
+            },
         }
         self._append_world_info(result, resolved_world)
         return result
@@ -952,6 +1038,441 @@ class ActorQueryHelper:
         return value
 
 
+class TraceCommandHelper:
+    """Execute collision traces through SystemLibrary single-trace APIs."""
+
+    HIT_RESULT_FIELDS = [
+        "blocking_hit",
+        "initial_overlap",
+        "time",
+        "distance",
+        "location",
+        "impact_point",
+        "normal",
+        "impact_normal",
+        "phys_mat",
+        "hit_actor",
+        "hit_component",
+        "bone_name",
+        "my_bone_name",
+        "item",
+        "element_index",
+        "face_index",
+        "trace_start",
+        "trace_end",
+    ]
+
+    DRAW_DEBUG_TYPE_MAP = {
+        "none": unreal.DrawDebugTrace.NONE,
+        "for_one_frame": unreal.DrawDebugTrace.FOR_ONE_FRAME,
+        "foroneframe": unreal.DrawDebugTrace.FOR_ONE_FRAME,
+        "oneframe": unreal.DrawDebugTrace.FOR_ONE_FRAME,
+        "for_duration": unreal.DrawDebugTrace.FOR_DURATION,
+        "forduration": unreal.DrawDebugTrace.FOR_DURATION,
+        "duration": unreal.DrawDebugTrace.FOR_DURATION,
+        "persistent": unreal.DrawDebugTrace.PERSISTENT,
+    }
+
+    def __init__(self, actor_query_helper: ActorQueryHelper, serializer: EditorSelectionSerializer) -> None:
+        self._actor_query_helper = actor_query_helper
+        self._serializer = serializer
+        self._trace_channel_map = self._build_trace_channel_map()
+
+    def line_trace(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        resolved_world = self._actor_query_helper._resolve_world(str(params.get("world_type", "auto")))
+        start = self._parse_vector3(params.get("start"), "start")
+        end = self._parse_vector3(params.get("end"), "end")
+        trace_channel_name, trace_channel = self._parse_trace_channel(params.get("trace_channel", "visibility"))
+        trace_complex = bool(params.get("trace_complex", False))
+        actors_to_ignore = self._resolve_actors_to_ignore(resolved_world.world, params.get("actors_to_ignore", []))
+        draw_debug_type = self._parse_draw_debug_type(params.get("draw_debug_type", "none"))
+        ignore_self = bool(params.get("ignore_self", True))
+        draw_time = self._parse_non_negative_float(params.get("draw_time", 5.0), "draw_time")
+
+        hit_result = unreal.SystemLibrary.line_trace_single(
+            resolved_world.world,
+            start,
+            end,
+            trace_channel,
+            trace_complex,
+            actors_to_ignore,
+            draw_debug_type,
+            ignore_self,
+            unreal.LinearColor(1.0, 0.0, 0.0, 1.0),
+            unreal.LinearColor(0.0, 1.0, 0.0, 1.0),
+            draw_time,
+        )
+        return self._build_trace_result(
+            command_name="line_trace",
+            resolved_world=resolved_world,
+            trace_channel_name=trace_channel_name,
+            draw_debug_type=draw_debug_type,
+            actors_to_ignore=actors_to_ignore,
+            hit_result=hit_result,
+        )
+
+    def box_trace(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        resolved_world = self._actor_query_helper._resolve_world(str(params.get("world_type", "auto")))
+        start = self._parse_vector3(params.get("start"), "start")
+        end = self._parse_vector3(params.get("end"), "end")
+        half_size = self._parse_vector3(params.get("half_size"), "half_size")
+        orientation = self._parse_rotator(params.get("orientation", [0.0, 0.0, 0.0]), "orientation")
+        trace_channel_name, trace_channel = self._parse_trace_channel(params.get("trace_channel", "visibility"))
+        trace_complex = bool(params.get("trace_complex", False))
+        actors_to_ignore = self._resolve_actors_to_ignore(resolved_world.world, params.get("actors_to_ignore", []))
+        draw_debug_type = self._parse_draw_debug_type(params.get("draw_debug_type", "none"))
+        ignore_self = bool(params.get("ignore_self", True))
+        draw_time = self._parse_non_negative_float(params.get("draw_time", 5.0), "draw_time")
+
+        hit_result = unreal.SystemLibrary.box_trace_single(
+            resolved_world.world,
+            start,
+            end,
+            half_size,
+            orientation,
+            trace_channel,
+            trace_complex,
+            actors_to_ignore,
+            draw_debug_type,
+            ignore_self,
+            unreal.LinearColor(1.0, 0.0, 0.0, 1.0),
+            unreal.LinearColor(0.0, 1.0, 0.0, 1.0),
+            draw_time,
+        )
+        return self._build_trace_result(
+            command_name="box_trace",
+            resolved_world=resolved_world,
+            trace_channel_name=trace_channel_name,
+            draw_debug_type=draw_debug_type,
+            actors_to_ignore=actors_to_ignore,
+            hit_result=hit_result,
+        )
+
+    def sphere_trace(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        resolved_world = self._actor_query_helper._resolve_world(str(params.get("world_type", "auto")))
+        start = self._parse_vector3(params.get("start"), "start")
+        end = self._parse_vector3(params.get("end"), "end")
+        radius = self._parse_non_negative_float(params.get("radius"), "radius")
+        trace_channel_name, trace_channel = self._parse_trace_channel(params.get("trace_channel", "visibility"))
+        trace_complex = bool(params.get("trace_complex", False))
+        actors_to_ignore = self._resolve_actors_to_ignore(resolved_world.world, params.get("actors_to_ignore", []))
+        draw_debug_type = self._parse_draw_debug_type(params.get("draw_debug_type", "none"))
+        ignore_self = bool(params.get("ignore_self", True))
+        draw_time = self._parse_non_negative_float(params.get("draw_time", 5.0), "draw_time")
+
+        hit_result = unreal.SystemLibrary.sphere_trace_single(
+            resolved_world.world,
+            start,
+            end,
+            radius,
+            trace_channel,
+            trace_complex,
+            actors_to_ignore,
+            draw_debug_type,
+            ignore_self,
+            unreal.LinearColor(1.0, 0.0, 0.0, 1.0),
+            unreal.LinearColor(0.0, 1.0, 0.0, 1.0),
+            draw_time,
+        )
+        return self._build_trace_result(
+            command_name="sphere_trace",
+            resolved_world=resolved_world,
+            trace_channel_name=trace_channel_name,
+            draw_debug_type=draw_debug_type,
+            actors_to_ignore=actors_to_ignore,
+            hit_result=hit_result,
+        )
+
+    def get_hit_result_under_cursor(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        requested_world_type = str(params.get("world_type", "auto"))
+        resolved_world = self._actor_query_helper._resolve_world(requested_world_type)
+        if resolved_world.resolved_world_type != "pie":
+            raise EditorCommandError("get_hit_result_under_cursor 当前只支持 PIE/VR Preview 世界")
+
+        player_index_raw = params.get("player_index", 0)
+        try:
+            player_index = int(player_index_raw)
+        except (TypeError, ValueError) as exc:
+            raise EditorCommandError("'player_index' 必须是整数") from exc
+        if player_index < 0:
+            raise EditorCommandError("'player_index' 不能小于 0")
+
+        player_controller = unreal.GameplayStatics.get_player_controller(resolved_world.world, player_index)
+        if not player_controller:
+            raise EditorCommandError(f"未找到本地 PlayerController: player_index={player_index}")
+
+        mouse_position = player_controller.get_mouse_position()
+        if (
+            not isinstance(mouse_position, tuple)
+            or len(mouse_position) != 2
+            or mouse_position[0] is None
+            or mouse_position[1] is None
+        ):
+            raise EditorCommandError("当前 PlayerController 无法读取鼠标位置")
+
+        deproject_result = player_controller.deproject_mouse_position_to_world()
+        if (
+            not isinstance(deproject_result, tuple)
+            or len(deproject_result) != 2
+            or deproject_result[0] is None
+            or deproject_result[1] is None
+        ):
+            raise EditorCommandError("当前鼠标位置无法反投影到世界坐标")
+
+        trace_distance = self._resolve_cursor_trace_distance(player_controller, params.get("trace_distance"))
+        ray_origin = deproject_result[0]
+        ray_direction = deproject_result[1]
+        trace_end = ray_origin + (ray_direction * trace_distance)
+
+        trace_channel_name, trace_channel = self._parse_trace_channel(params.get("trace_channel", "visibility"))
+        trace_complex = bool(params.get("trace_complex", False))
+        actors_to_ignore = self._resolve_actors_to_ignore(resolved_world.world, params.get("actors_to_ignore", []))
+        draw_debug_type = self._parse_draw_debug_type(params.get("draw_debug_type", "none"))
+        ignore_self = bool(params.get("ignore_self", True))
+        draw_time = self._parse_non_negative_float(params.get("draw_time", 5.0), "draw_time")
+
+        hit_result = unreal.SystemLibrary.line_trace_single(
+            resolved_world.world,
+            ray_origin,
+            trace_end,
+            trace_channel,
+            trace_complex,
+            actors_to_ignore,
+            draw_debug_type,
+            ignore_self,
+            unreal.LinearColor(1.0, 0.0, 0.0, 1.0),
+            unreal.LinearColor(0.0, 1.0, 0.0, 1.0),
+            draw_time,
+        )
+
+        result = self._build_trace_result(
+            command_name="get_hit_result_under_cursor",
+            resolved_world=resolved_world,
+            trace_channel_name=trace_channel_name,
+            draw_debug_type=draw_debug_type,
+            actors_to_ignore=actors_to_ignore,
+            hit_result=hit_result,
+        )
+        result.update(
+            {
+                "player_index": player_index,
+                "player_controller_name": player_controller.get_name(),
+                "player_controller_path": player_controller.get_path_name(),
+                "mouse_position": [float(mouse_position[0]), float(mouse_position[1])],
+                "ray_origin": self._vector_to_list(ray_origin),
+                "ray_direction": self._vector_to_list(ray_direction),
+                "trace_distance": float(trace_distance),
+            }
+        )
+        return result
+
+    def _build_trace_result(
+        self,
+        command_name: str,
+        resolved_world: ResolvedWorld,
+        trace_channel_name: str,
+        draw_debug_type: Any,
+        actors_to_ignore: List[unreal.Actor],
+        hit_result: Any,
+    ) -> Dict[str, Any]:
+        serialized_hit = self._serialize_hit_result(hit_result)
+        result = {
+            "success": True,
+            "command": command_name,
+            "trace_channel": trace_channel_name,
+            "draw_debug_type": self._draw_debug_type_to_string(draw_debug_type),
+            "ignored_actor_names": [actor.get_name() for actor in actors_to_ignore],
+            "ignored_actor_paths": [actor.get_path_name() for actor in actors_to_ignore],
+            "has_hit": bool(serialized_hit["blocking_hit"]),
+            "hit_result": serialized_hit,
+            "implementation": "local_python",
+        }
+        self._actor_query_helper._append_world_info(result, resolved_world)
+        return result
+
+    def _serialize_hit_result(self, hit_result: Any) -> Dict[str, Any]:
+        default_result = {
+            "blocking_hit": False,
+            "initial_overlap": False,
+            "time": 1.0,
+            "distance": 0.0,
+            "location": [0.0, 0.0, 0.0],
+            "impact_point": [0.0, 0.0, 0.0],
+            "normal": [0.0, 0.0, 1.0],
+            "impact_normal": [0.0, 0.0, 1.0],
+            "phys_mat_name": "",
+            "phys_mat_path": "",
+            "hit_actor": None,
+            "hit_component": None,
+            "bone_name": "",
+            "my_bone_name": "",
+            "item": 0,
+            "element_index": 0,
+            "face_index": 0,
+            "trace_start": [0.0, 0.0, 0.0],
+            "trace_end": [0.0, 0.0, 0.0],
+        }
+        if hit_result is None:
+            return default_result
+
+        hit_tuple = hit_result.to_tuple() if hasattr(hit_result, "to_tuple") else None
+        if not isinstance(hit_tuple, tuple) or len(hit_tuple) < len(self.HIT_RESULT_FIELDS):
+            raise EditorCommandError("HitResult 序列化失败：返回值结构不符合预期")
+
+        field_map = {
+            field_name: hit_tuple[index]
+            for index, field_name in enumerate(self.HIT_RESULT_FIELDS)
+        }
+        serialized_result = dict(default_result)
+        serialized_result["blocking_hit"] = bool(field_map["blocking_hit"])
+        serialized_result["initial_overlap"] = bool(field_map["initial_overlap"])
+        serialized_result["time"] = float(field_map["time"])
+        serialized_result["distance"] = float(field_map["distance"])
+        serialized_result["location"] = self._vector_to_list(field_map["location"])
+        serialized_result["impact_point"] = self._vector_to_list(field_map["impact_point"])
+        serialized_result["normal"] = self._vector_to_list(field_map["normal"])
+        serialized_result["impact_normal"] = self._vector_to_list(field_map["impact_normal"])
+        serialized_result["bone_name"] = str(field_map["bone_name"])
+        serialized_result["my_bone_name"] = str(field_map["my_bone_name"])
+        serialized_result["item"] = int(field_map["item"])
+        serialized_result["element_index"] = int(field_map["element_index"])
+        serialized_result["face_index"] = int(field_map["face_index"])
+        serialized_result["trace_start"] = self._vector_to_list(field_map["trace_start"])
+        serialized_result["trace_end"] = self._vector_to_list(field_map["trace_end"])
+
+        phys_mat = field_map["phys_mat"]
+        if phys_mat is not None:
+            serialized_result["phys_mat_name"] = phys_mat.get_name()
+            serialized_result["phys_mat_path"] = phys_mat.get_path_name()
+
+        hit_actor = field_map["hit_actor"]
+        if hit_actor is not None:
+            serialized_result["hit_actor"] = self._serializer.serialize_actor(hit_actor, False, False)
+
+        hit_component = field_map["hit_component"]
+        if hit_component is not None:
+            serialized_result["hit_component"] = self._serializer.serialize_component(hit_component, False)
+
+        return serialized_result
+
+    def _resolve_actors_to_ignore(self, world: unreal.World, raw_value: Any) -> List[unreal.Actor]:
+        if raw_value is None:
+            return []
+        if not isinstance(raw_value, list):
+            raise EditorCommandError("'actors_to_ignore' 必须是字符串数组")
+
+        normalized_targets = [str(entry or "").strip() for entry in raw_value if str(entry or "").strip()]
+        if not normalized_targets:
+            return []
+
+        resolved_actors: List[unreal.Actor] = []
+        all_actors = list(unreal.GameplayStatics.get_all_actors_of_class(world, unreal.Actor) or [])
+        for target in normalized_targets:
+            matched_actor = None
+            target_casefold = target.casefold()
+            for actor in all_actors:
+                if not actor:
+                    continue
+                if actor.get_path_name().casefold() == target_casefold or actor.get_name().casefold() == target_casefold:
+                    matched_actor = actor
+                    break
+                if hasattr(actor, "get_actor_label") and actor.get_actor_label().casefold() == target_casefold:
+                    matched_actor = actor
+                    break
+            if matched_actor is None:
+                raise EditorCommandError(f"actors_to_ignore 中存在未找到的 Actor: {target}")
+            if matched_actor not in resolved_actors:
+                resolved_actors.append(matched_actor)
+        return resolved_actors
+
+    def _parse_trace_channel(self, raw_value: Any) -> tuple[str, Any]:
+        normalized_value = self._normalize_token(raw_value)
+        if not normalized_value:
+            raise EditorCommandError("缺少 'trace_channel' 参数")
+        trace_channel = self._trace_channel_map.get(normalized_value)
+        if trace_channel is None:
+            supported = ", ".join(sorted(self._trace_channel_map.keys()))
+            raise EditorCommandError(f"不支持的 'trace_channel': {raw_value}。当前支持: {supported}")
+        return normalized_value, trace_channel
+
+    def _build_trace_channel_map(self) -> Dict[str, Any]:
+        trace_channel_map: Dict[str, Any] = {}
+        for attribute_name in dir(unreal.TraceTypeQuery):
+            if not attribute_name.startswith("TRACE_TYPE_QUERY"):
+                continue
+            enum_value = getattr(unreal.TraceTypeQuery, attribute_name, None)
+            if enum_value is None:
+                continue
+            trace_channel_map[self._normalize_token(attribute_name)] = enum_value
+
+        if "tracetypequery1" in trace_channel_map:
+            trace_channel_map["visibility"] = trace_channel_map["tracetypequery1"]
+        if "tracetypequery2" in trace_channel_map:
+            trace_channel_map["camera"] = trace_channel_map["tracetypequery2"]
+        return trace_channel_map
+
+    def _parse_draw_debug_type(self, raw_value: Any) -> Any:
+        normalized_value = self._normalize_token(raw_value)
+        draw_debug_type = self.DRAW_DEBUG_TYPE_MAP.get(normalized_value)
+        if draw_debug_type is None:
+            supported = ", ".join(sorted(self.DRAW_DEBUG_TYPE_MAP.keys()))
+            raise EditorCommandError(f"不支持的 'draw_debug_type': {raw_value}。当前支持: {supported}")
+        return draw_debug_type
+
+    @staticmethod
+    def _draw_debug_type_to_string(draw_debug_type: Any) -> str:
+        if hasattr(draw_debug_type, "name"):
+            return str(draw_debug_type.name)
+        return str(draw_debug_type)
+
+    @staticmethod
+    def _parse_vector3(raw_value: Any, field_name: str) -> unreal.Vector:
+        if not isinstance(raw_value, list) or len(raw_value) != 3:
+            raise EditorCommandError(f"'{field_name}' 必须是长度为 3 的数组")
+        return unreal.Vector(float(raw_value[0]), float(raw_value[1]), float(raw_value[2]))
+
+    @staticmethod
+    def _parse_rotator(raw_value: Any, field_name: str) -> unreal.Rotator:
+        if not isinstance(raw_value, list) or len(raw_value) != 3:
+            raise EditorCommandError(f"'{field_name}' 必须是长度为 3 的数组")
+        return unreal.Rotator(float(raw_value[0]), float(raw_value[1]), float(raw_value[2]))
+
+    @staticmethod
+    def _parse_non_negative_float(raw_value: Any, field_name: str) -> float:
+        try:
+            parsed_value = float(raw_value)
+        except Exception as exc:
+            raise EditorCommandError(f"'{field_name}' 必须是数字") from exc
+        if parsed_value < 0.0:
+            raise EditorCommandError(f"'{field_name}' 不能小于 0")
+        return parsed_value
+
+    def _resolve_cursor_trace_distance(self, player_controller: unreal.PlayerController, raw_value: Any) -> float:
+        if raw_value is not None:
+            return self._parse_non_negative_float(raw_value, "trace_distance")
+
+        trace_distance = None
+        try:
+            trace_distance = player_controller.get_editor_property("hit_result_trace_distance")
+        except Exception:
+            trace_distance = None
+
+        if trace_distance is None:
+            return 100000.0
+        return self._parse_non_negative_float(trace_distance, "trace_distance")
+
+    @staticmethod
+    def _vector_to_list(value: Any) -> List[float]:
+        return [float(value.x), float(value.y), float(value.z)]
+
+    @staticmethod
+    def _normalize_token(raw_value: Any) -> str:
+        token = str(raw_value or "").strip().casefold()
+        for character in ("_", "-", " ", "."):
+            token = token.replace(character, "")
+        return token
+
+
 class ActorEditHelper:
     """Edit level actors through local editor Python APIs."""
 
@@ -974,9 +1495,22 @@ class ActorEditHelper:
 
     def spawn_actor(self, params: Dict[str, Any]) -> Dict[str, Any]:
         actor_name = self._require_string(params, "name")
-        actor_type_text = self._require_string(params, "type")
-        actor_class = self._resolve_actor_class(actor_type_text)
-        resolved_world = self._actor_query_helper._resolve_world("editor")
+        requested_world_type = str(params.get("world_type", "editor") or "editor").strip()
+        resolved_world = self._actor_query_helper._resolve_world(requested_world_type)
+        if resolved_world.resolved_world_type != "editor":
+            raise EditorCommandError("spawn_actor 当前只支持 editor 世界")
+
+        actor_type_text = str(params.get("type", "")).strip()
+        class_path = str(params.get("class_path", "")).strip()
+        template_actor_reference = str(params.get("template_actor", "")).strip()
+        if not actor_type_text and not class_path and not template_actor_reference:
+            raise EditorCommandError("spawn_actor 至少需要提供 'type'、'class_path'、'template_actor' 之一")
+
+        actor_class = None
+        if class_path:
+            actor_class = self._resolve_actor_class_reference(class_path)
+        elif actor_type_text:
+            actor_class = self._resolve_actor_class(actor_type_text)
 
         existing_actor = self._find_actor_by_name(resolved_world.world, actor_name)
         if existing_actor:
@@ -986,18 +1520,36 @@ class ActorEditHelper:
         location = self._get_vector_param(params, "location", [0.0, 0.0, 0.0])
         rotation = self._get_rotator_param(params, "rotation", [0.0, 0.0, 0.0])
         scale = self._get_vector_param(params, "scale", [1.0, 1.0, 1.0])
+        template_actor = None
+        if template_actor_reference:
+            template_actor = self._resolve_template_actor(resolved_world.world, template_actor_reference)
+            if actor_class is not None and not template_actor.get_class().get_path_name() == actor_class.get_path_name():
+                raise EditorCommandError(
+                    "template_actor 的类与 type/class_path 不一致，无法同时使用这两个来源"
+                )
 
-        actor = actor_subsystem.spawn_actor_from_class(actor_class, location=location, rotation=rotation)
-        if not actor:
-            raise EditorCommandError(f"创建 Actor 失败: {actor_name}")
+        if template_actor is not None:
+            actor = actor_subsystem.duplicate_actor(
+                template_actor,
+                to_world=resolved_world.world,
+                offset=unreal.Vector(0.0, 0.0, 0.0),
+            )
+            if not actor:
+                raise EditorCommandError(f"按模板复制 Actor 失败: {template_actor_reference}")
+        else:
+            actor = actor_subsystem.spawn_actor_from_class(actor_class, location=location, rotation=rotation)
+            if not actor:
+                raise EditorCommandError(f"创建 Actor 失败: {actor_name}")
 
         try:
-            actor.rename(actor_name)
+            self._rename_actor_safely(actor, actor_name)
             if hasattr(actor, "set_actor_label"):
                 actor.set_actor_label(actor_name)
+            actor.set_actor_location(location, False, False)
+            actor.set_actor_rotation(rotation, False)
             actor.set_actor_scale3d(scale)
 
-            if issubclass(actor_class, unreal.StaticMeshActor) and "static_mesh" in params:
+            if isinstance(actor, unreal.StaticMeshActor) and "static_mesh" in params:
                 self._apply_static_mesh(actor, self._require_string(params, "static_mesh"))
         except Exception as exc:
             self._destroy_actor(actor)
@@ -1007,7 +1559,15 @@ class ActorEditHelper:
         result["success"] = True
         result["created"] = True
         result["requested_name"] = actor_name
-        result["requested_type"] = actor_type_text.strip()
+        if actor_type_text:
+            result["requested_type"] = actor_type_text
+        if class_path:
+            result["class_path"] = class_path
+        if template_actor_reference:
+            result["template_actor"] = template_actor_reference
+            result["spawned_from_template"] = True
+            result["template_actor_class"] = template_actor.get_class().get_path_name()
+        result["implementation"] = "local_python"
         self._actor_query_helper._append_world_info(result, resolved_world)
         return result
 
@@ -1485,6 +2045,118 @@ class ActorEditHelper:
         )
         return result
 
+    def add_component_to_actor(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        resolved_actor = self._resolve_editor_actor(params)
+        actor = resolved_actor.actor
+        component_class = self._resolve_component_class(self._require_string(params, "component_class"))
+        component_name = str(params.get("component_name", "")).strip()
+        parent_component_name = str(params.get("parent_component_name", "")).strip()
+
+        component_subsystem = self._get_subobject_data_subsystem()
+        actor_handle = self._get_actor_instance_handle(component_subsystem, actor)
+        parent_handle = self._resolve_parent_component_handle(component_subsystem, actor, actor_handle, parent_component_name)
+
+        add_params = unreal.AddNewSubobjectParams()
+        add_params.parent_handle = parent_handle
+        add_params.new_class = component_class
+        add_params.conform_transform_to_parent = not bool(params.get("keep_world_transform", False))
+
+        new_handle, fail_reason = component_subsystem.add_new_subobject(add_params)
+        if not self._is_subobject_handle_valid(new_handle):
+            fail_reason_text = str(fail_reason).strip()
+            raise EditorCommandError(f"添加组件失败: {fail_reason_text or component_class.get_name()}")
+
+        component = self._get_component_from_handle(new_handle)
+        if not component:
+            raise EditorCommandError("组件已创建，但无法解析组件对象")
+
+        try:
+            actor.modify()
+            component.modify()
+            if component_name:
+                component.rename(component_name)
+            self._apply_component_instance_properties(actor, component, params)
+            if hasattr(actor, "post_edit_change"):
+                actor.post_edit_change()
+        except Exception as exc:
+            refreshed_actor_handle = self._get_actor_instance_handle(component_subsystem, actor)
+            refreshed_component_handle = self._find_component_handle_by_name(
+                component_subsystem,
+                actor,
+                component.get_name(),
+            )
+            if refreshed_component_handle is not None:
+                component_subsystem.k2_delete_subobject_from_instance(refreshed_actor_handle, refreshed_component_handle)
+            raise EditorCommandError(f"初始化组件失败: {exc}") from exc
+
+        component_payload = self._serializer.serialize_component(component, detailed=True)
+        result = {
+            "success": True,
+            "actor": actor.get_name(),
+            "actor_path": actor.get_path_name(),
+            "component": component.get_name(),
+            "component_path": component.get_path_name(),
+            "component_class": component.get_class().get_name(),
+            "component_class_path": component.get_class().get_path_name(),
+            "parent_component": parent_component_name or "",
+            "component_details": component_payload,
+            "actor_details": self._serializer.serialize_actor(
+                actor,
+                include_components=True,
+                detailed_components=True,
+            ),
+            "implementation": "local_python",
+        }
+        self._actor_query_helper._append_world_info(
+            result,
+            ResolvedWorld(resolved_actor.world, resolved_actor.resolved_world_type),
+        )
+        return result
+
+    def remove_component_from_actor(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        resolved_actor = self._resolve_editor_actor(params)
+        actor = resolved_actor.actor
+        component_name = self._require_string(params, "component_name")
+        root_component = self._get_root_scene_component(actor)
+        target_component = self._find_component_by_name(actor, component_name)
+        if not target_component:
+            raise EditorCommandError(f"未找到目标组件: {component_name}")
+        if root_component and target_component.get_path_name() == root_component.get_path_name():
+            raise EditorCommandError("不允许删除 Actor 的根组件")
+
+        component_payload = self._serializer.serialize_component(target_component, detailed=True)
+        component_subsystem = self._get_subobject_data_subsystem()
+        actor_handle = self._get_actor_instance_handle(component_subsystem, actor)
+        component_handle = self._find_component_handle_by_name(component_subsystem, actor, target_component.get_name())
+        if component_handle is None:
+            raise EditorCommandError(f"未找到组件句柄: {component_name}")
+
+        deleted_count = int(component_subsystem.k2_delete_subobject_from_instance(actor_handle, component_handle))
+        if deleted_count <= 0:
+            raise EditorCommandError(f"删除组件失败: {component_name}")
+
+        if hasattr(actor, "post_edit_change"):
+            actor.post_edit_change()
+
+        result = {
+            "success": True,
+            "actor": actor.get_name(),
+            "actor_path": actor.get_path_name(),
+            "removed_component": component_payload,
+            "deleted_count": deleted_count,
+            "actor_details": self._serializer.serialize_actor(
+                actor,
+                include_components=True,
+                detailed_components=True,
+            ),
+            "implementation": "local_python",
+        }
+        self._actor_query_helper._append_world_info(
+            result,
+            ResolvedWorld(resolved_actor.world, resolved_actor.resolved_world_type),
+        )
+        return result
+
     def _resolve_editor_actor(self, params: Dict[str, Any]) -> ResolvedActor:
         scoped_params = dict(params)
         scoped_params["world_type"] = "editor"
@@ -1514,6 +2186,68 @@ class ActorEditHelper:
                 return actor
         return None
 
+    def _resolve_template_actor(self, world: unreal.World, template_actor_reference: str) -> unreal.Actor:
+        normalized_reference = template_actor_reference.strip()
+        if not normalized_reference:
+            raise EditorCommandError("缺少 'template_actor' 参数")
+
+        for actor in self._actor_query_helper._get_all_actors(world):
+            if not actor:
+                continue
+            actor_name = actor.get_name()
+            actor_path = actor.get_path_name() if hasattr(actor, "get_path_name") else ""
+            actor_label = actor.get_actor_label() if hasattr(actor, "get_actor_label") else ""
+            if normalized_reference in (actor_name, actor_path, actor_label):
+                return actor
+
+        raise EditorCommandError(f"未找到模板 Actor: {template_actor_reference}")
+
+    def _find_component_by_name(
+        self,
+        actor: unreal.Actor,
+        component_name: str,
+    ) -> Optional[unreal.ActorComponent]:
+        normalized_name = component_name.strip().casefold()
+        for component in list(actor.get_components_by_class(unreal.ActorComponent) or []):
+            if not component:
+                continue
+            if component.get_name().casefold() == normalized_name:
+                return component
+        return None
+
+    def _rename_actor_safely(self, actor: unreal.Actor, actor_name: str) -> None:
+        current_name = actor.get_name()
+        if current_name == actor_name:
+            return
+
+        existing_object = self._find_level_object(actor, actor_name)
+        if existing_object is not None and existing_object != actor:
+            raise EditorCommandError(f"目标 Actor 名称已被占用: {actor_name}")
+
+        actor.rename(actor_name)
+
+    @staticmethod
+    def _find_level_object(actor: unreal.Actor, object_name: str) -> Optional[Any]:
+        outer = actor.get_outer() if hasattr(actor, "get_outer") else None
+        if outer is None or not hasattr(outer, "get_path_name"):
+            return None
+
+        object_path = f"{outer.get_path_name()}.{object_name}"
+        find_object = getattr(unreal, "find_object", None)
+        if callable(find_object):
+            try:
+                return find_object(None, object_path)
+            except Exception:
+                return None
+
+        load_object = getattr(unreal, "load_object", None)
+        if callable(load_object):
+            try:
+                return load_object(None, object_path)
+            except Exception:
+                return None
+        return None
+
     @staticmethod
     def _get_root_scene_component(actor: unreal.Actor) -> Any:
         root_component = actor.get_root_component() if hasattr(actor, "get_root_component") else None
@@ -1528,22 +2262,66 @@ class ActorEditHelper:
 
     def _resolve_blueprint_asset(self, blueprint_name: str) -> unreal.Object:
         normalized_name = blueprint_name.strip()
+        if not normalized_name:
+            raise EditorCommandError("缺少 'blueprint_name' 参数")
+
         candidate_paths = [normalized_name]
         if not normalized_name.startswith("/"):
             candidate_paths.append(f"/Game/Blueprints/{normalized_name}")
+            candidate_paths.append(f"/Game/Blueprints/{normalized_name}.{normalized_name}")
         else:
             candidate_paths.append(normalized_name.rsplit(".", 1)[0])
+            if "." not in normalized_name:
+                asset_name = normalized_name.rsplit("/", 1)[-1]
+                candidate_paths.append(f"{normalized_name}.{asset_name}")
 
         for candidate_path in candidate_paths:
             asset = unreal.EditorAssetLibrary.load_asset(candidate_path)
-            if asset:
+            if asset and isinstance(asset, unreal.Blueprint):
                 return asset
 
         if not normalized_name.startswith("/"):
-            raise EditorCommandError(
-                f"Blueprint '{blueprint_name}' 未找到，当前仍要求资源位于 /Game/Blueprints 下或传完整资产路径"
-            )
+            matched_assets = self._find_blueprint_assets_by_name(normalized_name)
+            if len(matched_assets) == 1:
+                resolved_asset = matched_assets[0].get_asset()
+                if resolved_asset and isinstance(resolved_asset, unreal.Blueprint):
+                    return resolved_asset
+
+            if len(matched_assets) > 1:
+                candidate_paths = [
+                    self._asset_data_to_object_path(asset_data)
+                    for asset_data in matched_assets[:5]
+                ]
+                raise EditorCommandError(
+                    f"找到多个同名 Blueprint，请改用完整资产路径: {blueprint_name}，候选={', '.join(candidate_paths)}"
+                )
+
+        if not normalized_name.startswith("/"):
+            raise EditorCommandError(f"Blueprint 未找到: {blueprint_name}")
         raise EditorCommandError(f"Blueprint 资产未找到: {blueprint_name}")
+
+    @staticmethod
+    def _asset_data_to_object_path(asset_data: unreal.AssetData) -> str:
+        package_name = str(asset_data.package_name)
+        asset_name = str(asset_data.asset_name)
+        return f"{package_name}.{asset_name}"
+
+    def _find_blueprint_assets_by_name(self, blueprint_name: str) -> List[unreal.AssetData]:
+        asset_registry = unreal.AssetRegistryHelpers.get_asset_registry()
+        blueprint_class_path = unreal.TopLevelAssetPath("/Script/Engine", "Blueprint")
+        normalized_name = blueprint_name.casefold()
+        matched_assets: List[unreal.AssetData] = []
+        for asset_data in list(asset_registry.get_assets_by_class(blueprint_class_path, True) or []):
+            asset_name = str(asset_data.asset_name)
+            package_name = str(asset_data.package_name)
+            object_path = self._asset_data_to_object_path(asset_data)
+            if (
+                asset_name.casefold() == normalized_name
+                or package_name.casefold() == normalized_name
+                or object_path.casefold() == normalized_name
+            ):
+                matched_assets.append(asset_data)
+        return matched_assets
 
     def _resolve_actor_class_reference(self, class_path: str) -> Any:
         normalized_reference = class_path.strip()
@@ -1584,6 +2362,155 @@ class ActorEditHelper:
             pass
 
         return resolved_class
+
+    def _resolve_component_class(self, component_class: str) -> Any:
+        normalized_reference = component_class.strip()
+        if not normalized_reference:
+            raise EditorCommandError("缺少 'component_class' 参数")
+
+        resolved_class = None
+        if normalized_reference.startswith("/"):
+            try:
+                resolved_class = unreal.load_class(None, normalized_reference)
+            except Exception:
+                resolved_class = None
+        else:
+            resolved_class = getattr(unreal, normalized_reference, None)
+            if resolved_class is None:
+                lowered_reference = normalized_reference.casefold()
+                for attribute_name in dir(unreal):
+                    if attribute_name.casefold() == lowered_reference:
+                        resolved_class = getattr(unreal, attribute_name, None)
+                        if resolved_class is not None:
+                            break
+
+        if not resolved_class:
+            raise EditorCommandError(f"无法解析 component_class: {component_class}")
+
+        try:
+            if isinstance(resolved_class, type) and not issubclass(resolved_class, unreal.ActorComponent):
+                raise EditorCommandError(f"component_class 不是 ActorComponent 类: {component_class}")
+        except TypeError:
+            pass
+
+        return resolved_class
+
+    def _apply_component_instance_properties(
+        self,
+        actor: unreal.Actor,
+        component: unreal.ActorComponent,
+        params: Dict[str, Any],
+    ) -> None:
+        parent_component_name = str(params.get("parent_component_name", "")).strip()
+        if parent_component_name and isinstance(component, unreal.SceneComponent):
+            parent_component = self._find_component_by_name(actor, parent_component_name)
+            if not parent_component:
+                raise EditorCommandError(f"未找到父组件: {parent_component_name}")
+            if not isinstance(parent_component, unreal.SceneComponent):
+                raise EditorCommandError(f"父组件不是 SceneComponent: {parent_component_name}")
+            socket_name = str(params.get("socket_name", "")).strip()
+            attachment_rule = self._get_attachment_rule(bool(params.get("keep_world_transform", False)))
+            attached = component.attach_to_component(
+                parent_component,
+                socket_name,
+                attachment_rule,
+                attachment_rule,
+                attachment_rule,
+                False,
+            )
+            if not attached:
+                raise EditorCommandError(f"组件附着失败: {component.get_name()}")
+
+        if isinstance(component, unreal.SceneComponent):
+            if "location" in params:
+                component.set_editor_property(
+                    "relative_location",
+                    self._get_vector_param(params, "location", [0.0, 0.0, 0.0]),
+                )
+            if "rotation" in params:
+                component.set_editor_property(
+                    "relative_rotation",
+                    self._get_rotator_param(params, "rotation", [0.0, 0.0, 0.0]),
+                )
+            if "scale" in params:
+                component.set_editor_property(
+                    "relative_scale3d",
+                    self._get_vector_param(params, "scale", [1.0, 1.0, 1.0]),
+                )
+
+        raw_properties = params.get("component_properties")
+        if raw_properties is None:
+            return
+        if not isinstance(raw_properties, dict):
+            raise EditorCommandError("'component_properties' 必须是对象")
+
+        for property_name, property_value in raw_properties.items():
+            try:
+                component.set_editor_property(str(property_name), property_value)
+            except Exception as exc:
+                raise EditorCommandError(f"设置组件属性失败 {property_name}: {exc}") from exc
+
+    @staticmethod
+    def _get_subobject_data_subsystem() -> unreal.SubobjectDataSubsystem:
+        subsystem = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
+        if not subsystem:
+            raise EditorCommandError("SubobjectDataSubsystem 不可用")
+        return subsystem
+
+    def _get_actor_instance_handle(
+        self,
+        subsystem: unreal.SubobjectDataSubsystem,
+        actor: unreal.Actor,
+    ) -> Any:
+        handles = list(subsystem.k2_gather_subobject_data_for_instance(actor) or [])
+        if not handles:
+            raise EditorCommandError(f"无法收集 Actor 组件句柄: {actor.get_name()}")
+        return handles[0]
+
+    def _resolve_parent_component_handle(
+        self,
+        subsystem: unreal.SubobjectDataSubsystem,
+        actor: unreal.Actor,
+        actor_handle: Any,
+        parent_component_name: str,
+    ) -> Any:
+        if not parent_component_name:
+            return actor_handle
+
+        parent_handle = self._find_component_handle_by_name(subsystem, actor, parent_component_name)
+        if parent_handle is None:
+            raise EditorCommandError(f"未找到父组件: {parent_component_name}")
+        return parent_handle
+
+    def _find_component_handle_by_name(
+        self,
+        subsystem: unreal.SubobjectDataSubsystem,
+        actor: unreal.Actor,
+        component_name: str,
+    ) -> Optional[Any]:
+        normalized_name = component_name.strip().casefold()
+        library = unreal.SubobjectDataBlueprintFunctionLibrary
+        for handle in list(subsystem.k2_gather_subobject_data_for_instance(actor) or []):
+            if not self._is_subobject_handle_valid(handle):
+                continue
+            component = self._get_component_from_handle(handle)
+            if component and component.get_name().casefold() == normalized_name:
+                return handle
+        return None
+
+    @staticmethod
+    def _is_subobject_handle_valid(handle: Any) -> bool:
+        return bool(unreal.SubobjectDataBlueprintFunctionLibrary.is_handle_valid(handle))
+
+    @staticmethod
+    def _get_component_from_handle(handle: Any) -> Optional[unreal.ActorComponent]:
+        if not ActorEditHelper._is_subobject_handle_valid(handle):
+            return None
+        data = unreal.SubobjectDataBlueprintFunctionLibrary.get_data(handle)
+        component = unreal.SubobjectDataBlueprintFunctionLibrary.get_associated_object(data)
+        if isinstance(component, unreal.ActorComponent):
+            return component
+        return None
 
     @staticmethod
     def _resolve_blueprint_generated_class(blueprint_asset: unreal.Object) -> Any:
@@ -1887,6 +2814,515 @@ class WorldSettingsCommandHelper:
         self._actor_query_helper._append_world_info(result, resolved_world)
         return result
 
+
+class DataLayerCommandHelper:
+    """Read editor Data Layer state through local Python APIs."""
+
+    _RUNTIME_STATE_ALIASES = {
+        "activated": unreal.DataLayerRuntimeState.ACTIVATED,
+        "loaded": unreal.DataLayerRuntimeState.LOADED,
+        "unloaded": unreal.DataLayerRuntimeState.UNLOADED,
+    }
+
+    def __init__(self, actor_query_helper: ActorQueryHelper) -> None:
+        self._actor_query_helper = actor_query_helper
+
+    def get_data_layers(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        requested_world_type = str(params.get("world_type", "editor")).strip().casefold() or "editor"
+        if requested_world_type not in {"editor", "auto"}:
+            raise EditorCommandError("get_data_layers 当前仅支持 editor/auto 世界")
+
+        resolved_world = self._actor_query_helper._resolve_world("editor")
+        subsystem = unreal.get_editor_subsystem(unreal.DataLayerEditorSubsystem)
+        if not subsystem:
+            raise EditorCommandError("DataLayerEditorSubsystem 不可用")
+
+        data_layers = list(subsystem.get_all_data_layers() or [])
+        serialized_layers = [
+            self._serialize_data_layer(data_layer)
+            for data_layer in data_layers
+            if data_layer
+        ]
+
+        result = {
+            "success": True,
+            "data_layers": serialized_layers,
+            "data_layer_count": len(serialized_layers),
+            "implementation": "local_python",
+            "implementation_module": "commands.editor.editor_commands",
+            "implementation_command": "get_data_layers",
+        }
+        self._actor_query_helper._append_world_info(result, resolved_world)
+        return result
+
+    def create_data_layer(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        requested_world_type = str(params.get("world_type", "editor")).strip().casefold() or "editor"
+        if requested_world_type not in {"editor", "auto"}:
+            raise EditorCommandError("create_data_layer 当前仅支持 editor/auto 世界")
+
+        data_layer_name = self._require_new_data_layer_name(params)
+        destination_path = self._normalize_destination_path(params.get("destination_path", "/Game"))
+        requested_parent_identifier = str(params.get("parent_data_layer", "")).strip()
+        requested_world_data_layers_path = str(params.get("world_data_layers_path", "")).strip()
+
+        resolved_world = self._actor_query_helper._resolve_world("editor")
+        subsystem = unreal.get_editor_subsystem(unreal.DataLayerEditorSubsystem)
+        if not subsystem:
+            raise EditorCommandError("DataLayerEditorSubsystem 不可用")
+
+        parent_data_layer = None
+        if requested_parent_identifier:
+            available_layers = self._get_all_data_layers(subsystem)
+            parent_data_layer = self._resolve_data_layer_identifier(
+                requested_parent_identifier,
+                available_layers,
+            )
+
+        asset_path = f"{destination_path}/{data_layer_name}"
+        object_path = f"{asset_path}.{data_layer_name}"
+        if unreal.EditorAssetLibrary.does_asset_exist(object_path):
+            raise EditorCommandError(f"DataLayerAsset 已存在: {object_path}")
+
+        unreal.EditorAssetLibrary.make_directory(destination_path)
+        factory = unreal.DataLayerFactory()
+        created_asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            data_layer_name,
+            destination_path,
+            unreal.DataLayerAsset,
+            factory,
+        )
+        if not created_asset:
+            raise EditorCommandError(f"创建 DataLayerAsset 失败: {object_path}")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(created_asset, only_if_is_dirty=False):
+            raise EditorCommandError(f"保存 DataLayerAsset 失败: {object_path}")
+
+        creation_params = unreal.DataLayerCreationParameters()
+        creation_params.data_layer_asset = created_asset
+        resolved_world_data_layers = self._resolve_world_data_layers(
+            resolved_world.world,
+            requested_world_data_layers_path,
+        )
+        if resolved_world_data_layers:
+            creation_params.world_data_layers = resolved_world_data_layers
+
+        created_data_layer = subsystem.create_data_layer_instance(creation_params)
+        if not created_data_layer:
+            raise EditorCommandError(f"创建 Data Layer 实例失败: {object_path}")
+
+        set_parent_result = None
+        if parent_data_layer:
+            set_parent_result = bool(subsystem.set_parent_data_layer(created_data_layer, parent_data_layer))
+            if not set_parent_result:
+                raise EditorCommandError(
+                    f"DataLayer 已创建，但设置父层级失败: {parent_data_layer.get_path_name()}"
+                )
+
+        result: Dict[str, Any] = {
+            "success": True,
+            "created_asset": {
+                "asset_name": created_asset.get_name(),
+                "asset_path": asset_path,
+                "package_name": asset_path,
+                "package_path": destination_path,
+                "object_path": created_asset.get_path_name(),
+                "destination_path": destination_path,
+            },
+            "data_layer": self._serialize_data_layer(created_data_layer),
+            "implementation": "local_python",
+            "implementation_module": "commands.editor.editor_commands",
+            "implementation_command": "create_data_layer",
+        }
+        if requested_parent_identifier:
+            result["requested_parent_data_layer"] = requested_parent_identifier
+        if parent_data_layer:
+            result["parent_data_layer"] = self._serialize_data_layer(parent_data_layer)
+        if set_parent_result is not None:
+            result["set_parent_result"] = set_parent_result
+        self._actor_query_helper._append_world_info(result, resolved_world)
+        return result
+
+    def set_actor_data_layers(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        requested_world_type = str(params.get("world_type", "editor")).strip().casefold() or "editor"
+        if requested_world_type not in {"editor", "auto"}:
+            raise EditorCommandError("set_actor_data_layers 当前仅支持 editor/auto 世界")
+
+        if "data_layers" not in params:
+            raise EditorCommandError("缺少 'data_layers' 参数")
+        if not isinstance(params["data_layers"], list):
+            raise EditorCommandError("'data_layers' 必须是字符串数组")
+
+        resolved_actor = self._actor_query_helper._resolve_actor(
+            {
+                "name": params.get("name", ""),
+                "actor_path": params.get("actor_path", ""),
+                "world_type": "editor",
+            }
+        )
+        subsystem = unreal.get_editor_subsystem(unreal.DataLayerEditorSubsystem)
+        if not subsystem:
+            raise EditorCommandError("DataLayerEditorSubsystem 不可用")
+
+        requested_identifiers = self._normalize_requested_identifiers(params["data_layers"])
+        available_layers = self._get_all_data_layers(subsystem)
+        resolved_target_layers = [
+            self._resolve_data_layer_identifier(identifier, available_layers)
+            for identifier in requested_identifiers
+        ]
+
+        current_layers_before = self._get_actor_membership_layers(
+            resolved_actor.actor,
+            subsystem,
+            available_layers,
+        )
+        current_layer_paths = {
+            data_layer.get_path_name()
+            for data_layer in current_layers_before
+        }
+        target_layer_paths = {
+            data_layer.get_path_name()
+            for data_layer in resolved_target_layers
+        }
+
+        subsystem.remove_actor_from_all_data_layers(resolved_actor.actor)
+        if resolved_target_layers:
+            subsystem.add_actor_to_data_layers(resolved_actor.actor, resolved_target_layers)
+
+        current_layers_after = self._get_actor_membership_layers(
+            resolved_actor.actor,
+            subsystem,
+            available_layers,
+        )
+        current_layer_paths_after = {
+            data_layer.get_path_name()
+            for data_layer in current_layers_after
+        }
+
+        missing_layer_paths = target_layer_paths.difference(current_layer_paths_after)
+        if missing_layer_paths:
+            missing_display = ", ".join(sorted(missing_layer_paths))
+            raise EditorCommandError(f"写入 Actor DataLayer 后校验失败: {missing_display}")
+
+        final_layers = [
+            self._serialize_data_layer(data_layer)
+            for data_layer in current_layers_after
+        ]
+        added_assets = [
+            self._serialize_data_layer(data_layer)
+            for data_layer in current_layers_after
+            if data_layer.get_path_name() not in current_layer_paths
+        ]
+        removed_assets = [
+            self._serialize_data_layer(data_layer)
+            for data_layer in current_layers_before
+            if data_layer.get_path_name() not in current_layer_paths_after
+        ]
+
+        result = {
+            "success": True,
+            "actor_name": resolved_actor.actor.get_name(),
+            "actor_path": resolved_actor.actor.get_path_name(),
+            "requested_data_layers": requested_identifiers,
+            "resolved_data_layers": [
+                self._serialize_data_layer(data_layer)
+                for data_layer in resolved_target_layers
+            ],
+            "resolved_data_layer_count": len(resolved_target_layers),
+            "added_data_layers": added_assets,
+            "added_data_layer_count": len(added_assets),
+            "removed_data_layers": removed_assets,
+            "removed_data_layer_count": len(removed_assets),
+            "final_data_layers": final_layers,
+            "final_data_layer_count": len(final_layers),
+            "implementation": "local_python",
+            "implementation_module": "commands.editor.editor_commands",
+            "implementation_command": "set_actor_data_layers",
+        }
+        self._actor_query_helper._append_world_info(
+            result,
+            ResolvedWorld(resolved_actor.world, resolved_actor.resolved_world_type),
+        )
+        return result
+
+    def set_data_layer_state(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        requested_world_type = str(params.get("world_type", "editor")).strip().casefold() or "editor"
+        if requested_world_type not in {"editor", "auto"}:
+            raise EditorCommandError("set_data_layer_state 当前仅支持 editor/auto 世界")
+
+        requested_identifier = self._require_data_layer_identifier(params)
+        subsystem = unreal.get_editor_subsystem(unreal.DataLayerEditorSubsystem)
+        if not subsystem:
+            raise EditorCommandError("DataLayerEditorSubsystem 不可用")
+
+        available_layers = self._get_all_data_layers(subsystem)
+        target_data_layer = self._resolve_data_layer_identifier(requested_identifier, available_layers)
+        previous_state = self._serialize_data_layer(target_data_layer)
+        updated_fields: List[str] = []
+
+        if "is_visible" in params:
+            subsystem.set_data_layer_visibility(target_data_layer, bool(params["is_visible"]))
+            updated_fields.append("is_visible")
+
+        if "is_loaded_in_editor" in params:
+            load_result = subsystem.set_data_layer_is_loaded_in_editor(
+                target_data_layer,
+                bool(params["is_loaded_in_editor"]),
+                True,
+            )
+            updated_fields.append("is_loaded_in_editor")
+        else:
+            load_result = None
+
+        if "initial_runtime_state" in params:
+            runtime_state = self._resolve_runtime_state(params["initial_runtime_state"])
+            subsystem.set_data_layer_initial_runtime_state(target_data_layer, runtime_state)
+            updated_fields.append("initial_runtime_state")
+
+        if len(updated_fields) == 0:
+            raise EditorCommandError(
+                "至少需要提供 is_visible/is_loaded_in_editor/initial_runtime_state 之一"
+            )
+
+        final_state = self._serialize_data_layer(target_data_layer)
+        result: Dict[str, Any] = {
+            "success": True,
+            "requested_data_layer": requested_identifier,
+            "updated_fields": updated_fields,
+            "previous_state": previous_state,
+            "data_layer": final_state,
+            "implementation": "local_python",
+            "implementation_module": "commands.editor.editor_commands",
+            "implementation_command": "set_data_layer_state",
+        }
+        if load_result is not None:
+            result["set_loaded_in_editor_result"] = bool(load_result)
+        data_layer_world = target_data_layer.get_world() if hasattr(target_data_layer, "get_world") else None
+        if data_layer_world:
+            self._actor_query_helper._append_world_info(
+                result,
+                ResolvedWorld(data_layer_world, "editor"),
+            )
+        return result
+
+    def _serialize_data_layer(self, data_layer: unreal.DataLayerInstance) -> Dict[str, Any]:
+        asset = data_layer.get_asset() if hasattr(data_layer, "get_asset") else None
+        data_layer_type = data_layer.get_type() if hasattr(data_layer, "get_type") else None
+        initial_runtime_state = (
+            data_layer.get_initial_runtime_state()
+            if hasattr(data_layer, "get_initial_runtime_state")
+            else None
+        )
+        debug_color = data_layer.get_debug_color() if hasattr(data_layer, "get_debug_color") else None
+        data_layer_world = data_layer.get_world() if hasattr(data_layer, "get_world") else None
+
+        payload: Dict[str, Any] = {
+            "name": data_layer.get_name(),
+            "path": data_layer.get_path_name(),
+            "short_name": data_layer.get_data_layer_short_name(),
+            "full_name": data_layer.get_data_layer_full_name(),
+            "type": self._enum_to_name(data_layer_type),
+            "is_runtime": bool(data_layer.is_runtime()),
+            "is_visible": bool(data_layer.is_visible()),
+            "is_effective_visible": bool(data_layer.is_effective_visible()),
+            "is_initially_visible": bool(data_layer.is_initially_visible()),
+            "is_client_only": bool(data_layer.is_client_only()),
+            "is_server_only": bool(data_layer.is_server_only()),
+            "initial_runtime_state": self._enum_to_name(initial_runtime_state),
+        }
+
+        if asset:
+            payload["asset_name"] = asset.get_name()
+            payload["asset_path"] = asset.get_path_name()
+        if debug_color is not None:
+            payload["debug_color"] = self._color_to_list(debug_color)
+        if data_layer_world:
+            payload["world_name"] = data_layer_world.get_name()
+            payload["world_path"] = data_layer_world.get_path_name()
+
+        return payload
+
+    def _get_all_data_layers(self, subsystem: unreal.DataLayerEditorSubsystem) -> List[unreal.DataLayerInstance]:
+        return [
+            data_layer
+            for data_layer in list(subsystem.get_all_data_layers() or [])
+            if data_layer
+        ]
+
+    @staticmethod
+    def _require_new_data_layer_name(params: Dict[str, Any]) -> str:
+        raw_name = params.get("data_layer_name", "")
+        normalized_name = str(raw_name).strip()
+        if not normalized_name:
+            raise EditorCommandError("缺少 data_layer_name")
+        if "/" in normalized_name or "." in normalized_name:
+            raise EditorCommandError("data_layer_name 不能包含路径分隔符或对象后缀")
+        return normalized_name
+
+    @staticmethod
+    def _normalize_destination_path(raw_value: Any) -> str:
+        normalized_value = str(raw_value or "/Game").strip()
+        if not normalized_value:
+            normalized_value = "/Game"
+        normalized_value = normalized_value.replace("\\", "/").rstrip("/")
+        if not normalized_value.startswith("/"):
+            raise EditorCommandError(f"destination_path 必须是 Unreal 内容路径: {normalized_value}")
+        return normalized_value
+
+    def _resolve_world_data_layers(
+        self,
+        target_world: unreal.World,
+        requested_path: str,
+    ) -> unreal.WorldDataLayers | None:
+        if requested_path:
+            editor_actor_subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+            if not editor_actor_subsystem:
+                raise EditorCommandError("EditorActorSubsystem 不可用，无法解析 world_data_layers_path")
+            for actor in list(editor_actor_subsystem.get_all_level_actors() or []):
+                if not actor or actor.get_path_name() != requested_path:
+                    continue
+                if actor.get_class().get_name() != "WorldDataLayers":
+                    raise EditorCommandError(f"目标不是 WorldDataLayers Actor: {requested_path}")
+                return actor
+            raise EditorCommandError(f"未找到 world_data_layers_path 指定的对象: {requested_path}")
+
+        if hasattr(target_world, "get_world_data_layers"):
+            return target_world.get_world_data_layers()
+        return None
+
+    @staticmethod
+    def _require_data_layer_identifier(params: Dict[str, Any]) -> str:
+        for field_name in ("data_layer", "name", "path", "short_name", "full_name", "asset_name", "asset_path"):
+            raw_value = params.get(field_name)
+            if raw_value is None:
+                continue
+            normalized_value = str(raw_value).strip()
+            if normalized_value:
+                return normalized_value
+        raise EditorCommandError(
+            "缺少 DataLayer 标识，请提供 data_layer/name/path/short_name/full_name/asset_name/asset_path 之一"
+        )
+
+    def _resolve_runtime_state(self, raw_value: Any) -> unreal.DataLayerRuntimeState:
+        normalized_value = str(raw_value).strip()
+        if not normalized_value:
+            raise EditorCommandError("initial_runtime_state 不能为空")
+
+        if normalized_value.isdigit():
+            try:
+                return unreal.DataLayerRuntimeState(int(normalized_value))
+            except Exception as exc:
+                raise EditorCommandError(f"无效的 initial_runtime_state 数值: {raw_value}") from exc
+
+        normalized_key = normalized_value.split("::")[-1].split(".")[-1].casefold()
+        runtime_state = self._RUNTIME_STATE_ALIASES.get(normalized_key)
+        if runtime_state is None:
+            supported_values = ", ".join(sorted(self._RUNTIME_STATE_ALIASES.keys()))
+            raise EditorCommandError(
+                f"无效的 initial_runtime_state: {raw_value}，当前支持: {supported_values}"
+            )
+        return runtime_state
+
+    @staticmethod
+    def _normalize_requested_identifiers(raw_identifiers: List[Any]) -> List[str]:
+        normalized_identifiers: List[str] = []
+        for raw_identifier in raw_identifiers:
+            identifier = str(raw_identifier).strip()
+            if identifier:
+                normalized_identifiers.append(identifier)
+        return normalized_identifiers
+
+    def _resolve_data_layer_identifier(
+        self,
+        identifier: str,
+        available_layers: List[unreal.DataLayerInstance],
+    ) -> unreal.DataLayerInstance:
+        normalized_identifier = identifier.casefold()
+        exact_matches: List[unreal.DataLayerInstance] = []
+        partial_matches: List[unreal.DataLayerInstance] = []
+
+        for data_layer in available_layers:
+            candidate_map = self._build_data_layer_identifier_map(data_layer)
+            if normalized_identifier in candidate_map["exact"]:
+                exact_matches.append(data_layer)
+                continue
+            if any(
+                normalized_identifier in candidate_value
+                for candidate_value in candidate_map["contains"]
+            ):
+                partial_matches.append(data_layer)
+
+        if len(exact_matches) == 1:
+            return exact_matches[0]
+        if len(exact_matches) > 1:
+            raise EditorCommandError(
+                f"DataLayer 标识匹配到多个结果，请改用更精确路径: {identifier}"
+            )
+        if len(partial_matches) == 1:
+            return partial_matches[0]
+        if len(partial_matches) > 1:
+            raise EditorCommandError(
+                f"DataLayer 标识存在歧义，请改用更精确路径: {identifier}"
+            )
+        raise EditorCommandError(f"未找到目标 DataLayer: {identifier}")
+
+    def _build_data_layer_identifier_map(self, data_layer: unreal.DataLayerInstance) -> Dict[str, List[str] | set[str]]:
+        asset = data_layer.get_asset() if hasattr(data_layer, "get_asset") else None
+        exact_values = {
+            str(data_layer.get_name()).casefold(),
+            str(data_layer.get_path_name()).casefold(),
+            str(data_layer.get_data_layer_short_name()).casefold(),
+            str(data_layer.get_data_layer_full_name()).casefold(),
+        }
+        contains_values = list(exact_values)
+        if asset:
+            asset_name = asset.get_name()
+            asset_path = asset.get_path_name()
+            exact_values.add(str(asset_name).casefold())
+            exact_values.add(str(asset_path).casefold())
+            contains_values.append(str(asset_name).casefold())
+            contains_values.append(str(asset_path).casefold())
+        return {
+            "exact": exact_values,
+            "contains": contains_values,
+        }
+
+    def _get_actor_membership_layers(
+        self,
+        actor: unreal.Actor,
+        subsystem: unreal.DataLayerEditorSubsystem,
+        available_layers: List[unreal.DataLayerInstance],
+    ) -> List[unreal.DataLayerInstance]:
+        actor_path = actor.get_path_name()
+        matched_layers: List[unreal.DataLayerInstance] = []
+        for data_layer in available_layers:
+            try:
+                actors_in_layer = list(subsystem.get_actors_from_data_layer(data_layer) or [])
+            except Exception as exc:
+                raise EditorCommandError(
+                    f"读取 DataLayer 成员失败: {data_layer.get_name()}"
+                ) from exc
+            if any(layer_actor and layer_actor.get_path_name() == actor_path for layer_actor in actors_in_layer):
+                matched_layers.append(data_layer)
+        matched_layers.sort(key=lambda entry: entry.get_path_name())
+        return matched_layers
+
+    @staticmethod
+    def _enum_to_name(enum_value: Any) -> str:
+        if enum_value is None:
+            return ""
+        enum_name = getattr(enum_value, "name", None)
+        if enum_name:
+            return str(enum_name)
+        return str(enum_value)
+
+    @staticmethod
+    def _color_to_list(color: Any) -> List[int]:
+        return [
+            int(getattr(color, "r", 0)),
+            int(getattr(color, "g", 0)),
+            int(getattr(color, "b", 0)),
+            int(getattr(color, "a", 255)),
+        ]
+
     def _get_requested_property_names(self, params: Dict[str, Any]) -> List[str]:
         raw_property_names = params.get("property_names")
         if raw_property_names is None:
@@ -2094,8 +3530,113 @@ class WorldSettingsCommandHelper:
 class ViewportCommandHelper:
     """Control the active editor viewport through local Python APIs."""
 
+    _VIEW_MODE_ALIASES = {
+        "brushwireframe": unreal.ViewModeIndex.VMI_BRUSH_WIREFRAME,
+        "wireframe": unreal.ViewModeIndex.VMI_WIREFRAME,
+        "unlit": unreal.ViewModeIndex.VMI_UNLIT,
+        "lit": unreal.ViewModeIndex.VMI_LIT,
+        "detaillighting": unreal.ViewModeIndex.VMI_LIT_DETAIL_LIGHTING,
+        "lightingonly": unreal.ViewModeIndex.VMI_LIGHTING_ONLY,
+        "lightcomplexity": unreal.ViewModeIndex.VMI_LIGHT_COMPLEXITY,
+        "shadercomplexity": unreal.ViewModeIndex.VMI_SHADER_COMPLEXITY,
+        "lightmapdensity": unreal.ViewModeIndex.VMI_LIGHTMAP_DENSITY,
+        "litlightmapdensity": unreal.ViewModeIndex.VMI_LIT_LIGHTMAP_DENSITY,
+        "reflectionoverride": unreal.ViewModeIndex.VMI_REFLECTION_OVERRIDE,
+        "reflections": unreal.ViewModeIndex.VMI_REFLECTION_OVERRIDE,
+        "visualizebuffer": unreal.ViewModeIndex.VMI_VISUALIZE_BUFFER,
+        "stationarylightoverlap": unreal.ViewModeIndex.VMI_STATIONARY_LIGHT_OVERLAP,
+        "collisionpawn": unreal.ViewModeIndex.VMI_COLLISION_PAWN,
+        "playercollision": unreal.ViewModeIndex.VMI_COLLISION_PAWN,
+        "collisionvisibility": unreal.ViewModeIndex.VMI_COLLISION_VISIBILITY,
+        "visibilitycollision": unreal.ViewModeIndex.VMI_COLLISION_VISIBILITY,
+        "lodcoloration": unreal.ViewModeIndex.VMI_LOD_COLORATION,
+        "quadoverdraw": unreal.ViewModeIndex.VMI_QUAD_OVERDRAW,
+        "shadercomplexitywithquadoverdraw": unreal.ViewModeIndex.VMI_SHADER_COMPLEXITY_WITH_QUAD_OVERDRAW,
+        "pathtracing": unreal.ViewModeIndex.VMI_PATH_TRACING,
+        "visualizenanite": unreal.ViewModeIndex.VMI_VISUALIZE_NANITE,
+        "nanite": unreal.ViewModeIndex.VMI_VISUALIZE_NANITE,
+        "visualizelumen": unreal.ViewModeIndex.VMI_VISUALIZE_LUMEN,
+        "lumen": unreal.ViewModeIndex.VMI_VISUALIZE_LUMEN,
+        "visualizevirtualshadowmap": unreal.ViewModeIndex.VMI_VISUALIZE_VIRTUAL_SHADOW_MAP,
+        "virtualshadowmap": unreal.ViewModeIndex.VMI_VISUALIZE_VIRTUAL_SHADOW_MAP,
+        "litwireframe": unreal.ViewModeIndex.VMI_LIT_WIREFRAME,
+        "clay": unreal.ViewModeIndex.VMI_CLAY,
+        "zebra": unreal.ViewModeIndex.VMI_ZEBRA,
+    }
+
     def __init__(self, actor_query_helper: ActorQueryHelper) -> None:
         self._actor_query_helper = actor_query_helper
+
+    def set_viewport_mode(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        requested_view_mode = str(params.get("view_mode", "")).strip()
+        if not requested_view_mode:
+            raise EditorCommandError("缺少 'view_mode' 参数")
+
+        view_mode = self._resolve_view_mode_index(requested_view_mode)
+        apply_to_all = bool(params.get("apply_to_all", False))
+
+        if apply_to_all:
+            unreal.AutomationLibrary.set_editor_viewport_view_mode(view_mode)
+            updated_viewport_count = self._get_level_viewport_count()
+        else:
+            unreal.AutomationLibrary.set_editor_active_viewport_view_mode(view_mode)
+            updated_viewport_count = 1
+
+        level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+        if level_subsystem and hasattr(level_subsystem, "editor_invalidate_viewports"):
+            level_subsystem.editor_invalidate_viewports()
+
+        return {
+            "success": True,
+            "view_mode": self._view_mode_to_string(view_mode),
+            "view_mode_index": int(view_mode.value),
+            "apply_to_all": apply_to_all,
+            "updated_viewport_count": updated_viewport_count,
+            "implementation": "local_python",
+            "implementation_module": "commands.editor.editor_commands",
+            "implementation_command": "set_viewport_mode",
+        }
+
+    def get_viewport_camera(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        del params
+
+        editor_subsystem = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+        if not editor_subsystem or not hasattr(editor_subsystem, "get_level_viewport_camera_info"):
+            raise EditorCommandError("UnrealEditorSubsystem 不支持读取活动视口相机信息")
+
+        camera_info = editor_subsystem.get_level_viewport_camera_info()
+        if not isinstance(camera_info, tuple) or len(camera_info) != 2:
+            raise EditorCommandError("读取活动视口相机信息失败")
+
+        camera_location = camera_info[0]
+        camera_rotation = camera_info[1]
+        active_view_mode = unreal.AutomationLibrary.get_editor_active_viewport_view_mode()
+
+        level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+        viewport_config_key = ""
+        if level_subsystem and hasattr(level_subsystem, "get_active_viewport_config_key"):
+            resolved_key = level_subsystem.get_active_viewport_config_key()
+            viewport_config_key = str(resolved_key) if resolved_key else ""
+
+        result: Dict[str, Any] = {
+            "success": True,
+            "location": self._vector_to_list(camera_location),
+            "rotation": self._rotator_to_list(camera_rotation),
+            "view_mode": self._view_mode_to_string(active_view_mode),
+            "view_mode_index": int(active_view_mode.value),
+            # UE5.7 Python 当前没有稳定公开活动视口的 FOV/实时性/类型/像素尺寸读取接口。
+            "fov": None,
+            "is_perspective": None,
+            "is_realtime": None,
+            "viewport_type": "",
+            "viewport_size": [],
+            "viewport_config_key": viewport_config_key,
+            "implementation": "local_python",
+            "implementation_module": "commands.editor.editor_commands",
+            "implementation_command": "get_viewport_camera",
+        }
+        return result
+
 
     def focus_viewport(self, params: Dict[str, Any]) -> Dict[str, Any]:
         target_reference = str(params.get("target", "")).strip()
@@ -2193,6 +3734,80 @@ class ViewportCommandHelper:
     @staticmethod
     def _rotator_to_list(rotator: unreal.Rotator) -> List[float]:
         return [float(rotator.pitch), float(rotator.yaw), float(rotator.roll)]
+
+
+    @classmethod
+    def _normalize_view_mode_token(cls, value: str) -> str:
+        return "".join(character.lower() for character in value if character.isalnum())
+
+    @classmethod
+    def _resolve_view_mode_index(cls, value: str) -> unreal.ViewModeIndex:
+        trimmed_value = value.strip()
+        if trimmed_value.isdigit():
+            index_value = int(trimmed_value)
+            for candidate in unreal.ViewModeIndex:
+                if int(candidate.value) == index_value:
+                    return candidate
+            raise EditorCommandError(f"无效的 'view_mode': {value}")
+
+        normalized_value = cls._normalize_view_mode_token(trimmed_value)
+        resolved_mode = cls._VIEW_MODE_ALIASES.get(normalized_value)
+        if resolved_mode is not None:
+            return resolved_mode
+
+        for candidate in unreal.ViewModeIndex:
+            candidate_name = str(candidate.name)
+            if candidate_name.startswith("VMI_"):
+                candidate_name = candidate_name[4:]
+            if normalized_value == cls._normalize_view_mode_token(candidate_name):
+                return candidate
+
+        raise EditorCommandError(f"无效的 'view_mode': {value}")
+
+    @staticmethod
+    def _view_mode_to_string(view_mode: unreal.ViewModeIndex) -> str:
+        view_mode_name = str(view_mode.name)
+        if view_mode_name.startswith("VMI_"):
+            view_mode_name = view_mode_name[4:]
+        parts = view_mode_name.lower().split("_")
+        return "".join(part.capitalize() for part in parts)
+
+    @staticmethod
+    def _get_level_viewport_count() -> int:
+        level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+        if level_subsystem and hasattr(level_subsystem, "get_viewport_config_keys"):
+            viewport_keys = list(level_subsystem.get_viewport_config_keys() or [])
+            if viewport_keys:
+                return len(viewport_keys)
+        return 1
+
+
+class EditorRuntimeCommandHelper:
+    """Execute lightweight editor/runtime commands through local Python APIs."""
+
+    def __init__(self, actor_query_helper: ActorQueryHelper) -> None:
+        self._actor_query_helper = actor_query_helper
+
+    def execute_console_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        command = str(params.get("command", "")).strip()
+        if not command:
+            raise EditorCommandError("缺少 'command' 参数")
+
+        resolved_world = self._actor_query_helper._resolve_world(str(params.get("world_type", "auto")))
+        if not hasattr(unreal.SystemLibrary, "execute_console_command"):
+            raise EditorCommandError("SystemLibrary 不支持 execute_console_command")
+
+        unreal.SystemLibrary.execute_console_command(resolved_world.world, command, None)
+
+        result = {
+            "success": True,
+            "command": command,
+            "implementation": "local_python",
+            "implementation_module": "commands.editor.editor_commands",
+            "implementation_command": "execute_console_command",
+        }
+        self._actor_query_helper._append_world_info(result, resolved_world)
+        return result
 
 
 class EditorUtilityCommandHelper:

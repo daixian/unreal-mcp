@@ -1584,6 +1584,17 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintNodeCommands::HandleAddBlueprintRerou
 
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintNodeCommands::HandleCreateBlueprintGraph(const TSharedPtr<FJsonObject>& Params)
 {
+    FString GraphType = TEXT("graph");
+    Params->TryGetStringField(TEXT("graph_type"), GraphType);
+    if (GraphType.Equals(TEXT("function"), ESearchCase::IgnoreCase))
+    {
+        return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+            TEXT("commands.blueprint.blueprint_commands"),
+            TEXT("handle_blueprint_command"),
+            TEXT("create_blueprint_graph"),
+            Params);
+    }
+
     FString BlueprintName;
     if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
     {
@@ -1606,9 +1617,6 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintNodeCommands::HandleCreateBlueprintGr
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Graph already exists: %s"), *GraphName));
     }
-
-    FString GraphType = TEXT("graph");
-    Params->TryGetStringField(TEXT("graph_type"), GraphType);
 
     UEdGraph* NewGraph = FBlueprintEditorUtils::CreateNewGraph(Blueprint, FName(*GraphName), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
     if (!NewGraph)
@@ -1641,45 +1649,11 @@ TSharedPtr<FJsonObject> FUnrealMCPBlueprintNodeCommands::HandleCreateBlueprintGr
 
 TSharedPtr<FJsonObject> FUnrealMCPBlueprintNodeCommands::HandleDeleteBlueprintGraph(const TSharedPtr<FJsonObject>& Params)
 {
-    FString BlueprintName;
-    if (!Params->TryGetStringField(TEXT("blueprint_name"), BlueprintName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'blueprint_name' parameter"));
-    }
-
-    FString GraphName;
-    if (!Params->TryGetStringField(TEXT("graph_name"), GraphName))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'graph_name' parameter"));
-    }
-
-    UBlueprint* Blueprint = FUnrealMCPCommonUtils::FindBlueprint(BlueprintName);
-    if (!Blueprint)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Blueprint not found: %s"), *BlueprintName));
-    }
-
-    UEdGraph* Graph = FindBlueprintGraphByName(Blueprint, GraphName);
-    if (!Graph)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
-    }
-
-    if (Blueprint->UbergraphPages.Contains(Graph) && Blueprint->UbergraphPages.Num() <= 1)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Cannot delete the last uber graph"));
-    }
-
-    const FString GraphType = GetBlueprintGraphKind(Graph, Blueprint);
-    FBlueprintEditorUtils::RemoveGraph(Blueprint, Graph);
-    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
-
-    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-    ResultObj->SetStringField(TEXT("graph_name"), GraphName);
-    ResultObj->SetStringField(TEXT("graph_type"), GraphType);
-    ResultObj->SetBoolField(TEXT("deleted"), true);
-    return ResultObj;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.blueprint.blueprint_commands"),
+        TEXT("handle_blueprint_command"),
+        TEXT("delete_blueprint_graph"),
+        Params);
 }
 
 /**

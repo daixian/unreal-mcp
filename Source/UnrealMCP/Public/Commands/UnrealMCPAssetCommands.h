@@ -73,6 +73,34 @@ private:
     TSharedPtr<FJsonObject> HandleSaveAsset(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 签出资产。
+     * @param [in] Params 查询参数。
+     * @return TSharedPtr<FJsonObject> 签出结果。
+     */
+    TSharedPtr<FJsonObject> HandleCheckoutAsset(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 提交资产到源码控制。
+     * @param [in] Params 提交参数。
+     * @return TSharedPtr<FJsonObject> 提交结果。
+     */
+    TSharedPtr<FJsonObject> HandleSubmitAsset(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 还原资产在源码控制中的改动。
+     * @param [in] Params 还原参数。
+     * @return TSharedPtr<FJsonObject> 还原结果。
+     */
+    TSharedPtr<FJsonObject> HandleRevertAsset(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 查询资产的源码控制状态。
+     * @param [in] Params 查询参数。
+     * @return TSharedPtr<FJsonObject> 源码控制状态结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetSourceControlStatus(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 从外部文件导入资产。
      * @param [in] Params 导入参数。
      * @return TSharedPtr<FJsonObject> 导入结果。
@@ -183,6 +211,69 @@ private:
      * @return TSharedPtr<FJsonObject> Blueprint 摘要。
      */
     TSharedPtr<FJsonObject> HandleGetBlueprintSummary(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 创建 DataAsset 资源实例。
+     * @param [in] Params 创建参数（包含 data_asset_name/data_asset_class，可选 path）。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateDataAsset(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 创建 PrimaryDataAsset 资源实例。
+     * @param [in] Params 创建参数（包含 data_asset_name/data_asset_class，可选 path）。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreatePrimaryDataAsset(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 创建曲线资源。
+     * @param [in] Params 创建参数（包含 curve_name/curve_type，可选 path）。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateCurve(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 创建 DataTable 资源。
+     * @param [in] Params 创建参数（包含 table_name/row_struct，可选 path）。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateDataTable(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 读取 DataTable 的一行或全部行。
+     * @param [in] Params 查询参数（资产定位字段，和可选 row_name）。
+     * @return TSharedPtr<FJsonObject> 读取结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetDataTableRows(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 从 CSV 或 JSON 文件导入 DataTable 内容。
+     * @param [in] Params 导入参数（资产定位字段、source_file，可选 format/save_asset）。
+     * @return TSharedPtr<FJsonObject> 导入结果。
+     */
+    TSharedPtr<FJsonObject> HandleImportDataTable(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 新增或覆盖 DataTable 的单行数据。
+     * @param [in] Params 写入参数（资产定位字段、row_name、row_data）。
+     * @return TSharedPtr<FJsonObject> 写入结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetDataTableRow(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 把 DataTable 内容导出为 CSV 或 JSON 文件。
+     * @param [in] Params 导出参数（资产定位字段、export_file，可选 format）。
+     * @return TSharedPtr<FJsonObject> 导出结果。
+     */
+    TSharedPtr<FJsonObject> HandleExportDataTable(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 删除 DataTable 的单行数据。
+     * @param [in] Params 删除参数（资产定位字段和 row_name）。
+     * @return TSharedPtr<FJsonObject> 删除结果。
+     */
+    TSharedPtr<FJsonObject> HandleRemoveDataTableRow(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 创建基础材质资源。

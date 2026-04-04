@@ -2404,6 +2404,10 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCommand(const FString& Co
     if (CommandType == TEXT("get_asset_summary")) return HandleGetAssetSummary(Params);
     if (CommandType == TEXT("create_asset")) return HandleCreateAsset(Params);
     if (CommandType == TEXT("save_asset")) return HandleSaveAsset(Params);
+    if (CommandType == TEXT("checkout_asset")) return HandleCheckoutAsset(Params);
+    if (CommandType == TEXT("submit_asset")) return HandleSubmitAsset(Params);
+    if (CommandType == TEXT("revert_asset")) return HandleRevertAsset(Params);
+    if (CommandType == TEXT("get_source_control_status")) return HandleGetSourceControlStatus(Params);
     if (CommandType == TEXT("import_asset")) return HandleImportAsset(Params);
     if (CommandType == TEXT("export_asset")) return HandleExportAsset(Params);
     if (CommandType == TEXT("reimport_asset")) return HandleReimportAsset(Params);
@@ -2420,6 +2424,15 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCommand(const FString& Co
     if (CommandType == TEXT("sync_content_browser_to_assets")) return HandleSyncContentBrowserToAssets(Params);
     if (CommandType == TEXT("save_all_dirty_assets")) return HandleSaveAllDirtyAssets(Params);
     if (CommandType == TEXT("get_blueprint_summary")) return HandleGetBlueprintSummary(Params);
+    if (CommandType == TEXT("create_data_asset")) return HandleCreateDataAsset(Params);
+    if (CommandType == TEXT("create_primary_data_asset")) return HandleCreatePrimaryDataAsset(Params);
+    if (CommandType == TEXT("create_curve")) return HandleCreateCurve(Params);
+    if (CommandType == TEXT("create_data_table")) return HandleCreateDataTable(Params);
+    if (CommandType == TEXT("get_data_table_rows")) return HandleGetDataTableRows(Params);
+    if (CommandType == TEXT("import_data_table")) return HandleImportDataTable(Params);
+    if (CommandType == TEXT("set_data_table_row")) return HandleSetDataTableRow(Params);
+    if (CommandType == TEXT("export_data_table")) return HandleExportDataTable(Params);
+    if (CommandType == TEXT("remove_data_table_row")) return HandleRemoveDataTableRow(Params);
     if (CommandType == TEXT("create_material")) return HandleCreateMaterial(Params);
     if (CommandType == TEXT("create_material_function")) return HandleCreateMaterialFunction(Params);
     if (CommandType == TEXT("create_render_target")) return HandleCreateRenderTarget(Params);
@@ -2522,6 +2535,42 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSaveAsset(const TSharedPt
         TEXT("commands.assets.asset_commands"),
         TEXT("handle_asset_command"),
         TEXT("save_asset"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCheckoutAsset(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("checkout_asset"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSubmitAsset(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("submit_asset"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleRevertAsset(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("revert_asset"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetSourceControlStatus(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("get_source_control_status"),
         Params);
 }
 
@@ -2958,6 +3007,87 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateMaterial(const TSha
         Params);
 }
 
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateDataAsset(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("create_data_asset"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreatePrimaryDataAsset(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("create_primary_data_asset"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateCurve(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("create_curve"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateDataTable(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("create_data_table"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleGetDataTableRows(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("get_data_table_rows"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleImportDataTable(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("import_data_table"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleSetDataTableRow(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("set_data_table_row"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleExportDataTable(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("export_data_table"),
+        Params);
+}
+
+TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleRemoveDataTableRow(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("remove_data_table_row"),
+        Params);
+}
+
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCreateMaterialFunction(const TSharedPtr<FJsonObject>& Params)
 {
     return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
@@ -3050,221 +3180,36 @@ TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleReplaceMaterialSlot(const
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleAddMaterialExpression(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterial* Material = nullptr;
-    FAssetData MaterialAssetData;
-    FString ErrorMessage;
-    if (!ResolveBaseMaterialFromParams(Params, Material, MaterialAssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UClass* ExpressionClass = nullptr;
-    FString ResolvedClassPath;
-    if (!UnrealMCPAssetResolveMaterialExpressionClass(Params, ExpressionClass, ResolvedClassPath, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString SelectedAssetReference;
-    if (!Params->TryGetStringField(TEXT("selected_asset_path"), SelectedAssetReference))
-    {
-        Params->TryGetStringField(TEXT("selected_asset"), SelectedAssetReference);
-    }
-
-    UObject* SelectedAsset = nullptr;
-    if (!SelectedAssetReference.TrimStartAndEnd().IsEmpty())
-    {
-        FAssetData SelectedAssetData;
-        if (!ResolveAssetReference(SelectedAssetReference, SelectedAssetData, ErrorMessage))
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-        }
-        SelectedAsset = SelectedAssetData.GetAsset();
-    }
-
-    int32 NodePosX = 0;
-    int32 NodePosY = 0;
-    UnrealMCPAssetResolveMaterialNodePosition(Params, NodePosX, NodePosY);
-
-    Material->Modify();
-    UMaterialExpression* Expression = UMaterialEditingLibrary::CreateMaterialExpressionEx(
-        Material,
-        nullptr,
-        ExpressionClass,
-        SelectedAsset,
-        NodePosX,
-        NodePosY);
-    if (!Expression)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("创建材质表达式失败"));
-    }
-
-    TArray<TSharedPtr<FJsonValue>> AppliedProperties;
-    if (!UnrealMCPAssetApplyMaterialExpressionPropertyOverrides(Params, Expression, AppliedProperties, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    Expression->PostEditChange();
-    if (!UnrealMCPAssetSaveMaterial(Material, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TSharedPtr<FJsonObject> Result = UnrealMCPAssetCreateMaterialExpressionObject(Material, Expression);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("selected_asset_path"), SelectedAsset ? SelectedAsset->GetPathName() : FString());
-    Result->SetStringField(TEXT("resolved_expression_class_path"), ResolvedClassPath);
-    Result->SetArrayField(TEXT("applied_properties"), AppliedProperties);
-    Result->SetNumberField(TEXT("expression_count"), Material->GetExpressions().Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("add_material_expression"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleConnectMaterialExpressions(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterial* Material = nullptr;
-    FAssetData MaterialAssetData;
-    FString ErrorMessage;
-    if (!ResolveBaseMaterialFromParams(Params, Material, MaterialAssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UMaterialExpression* FromExpression = nullptr;
-    if (!UnrealMCPAssetResolveMaterialExpressionFromParams(Material, Params, TEXT("from_"), FromExpression, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    FString FromOutputName;
-    Params->TryGetStringField(TEXT("from_output_name"), FromOutputName);
-
-    FString MaterialPropertyText;
-    Params->TryGetStringField(TEXT("material_property"), MaterialPropertyText);
-    if (MaterialPropertyText.TrimStartAndEnd().IsEmpty())
-    {
-        Params->TryGetStringField(TEXT("property"), MaterialPropertyText);
-    }
-    MaterialPropertyText = MaterialPropertyText.TrimStartAndEnd();
-
-    const bool bHasMaterialProperty = !MaterialPropertyText.IsEmpty();
-    const bool bHasToExpressionSpecifier =
-        Params->HasField(TEXT("to_expression_path")) ||
-        Params->HasField(TEXT("to_expression_name")) ||
-        Params->HasField(TEXT("to_expression_index"));
-
-    if (bHasMaterialProperty == bHasToExpressionSpecifier)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            TEXT("必须且只能提供一组目标：to_expression_* 或 material_property"));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetObjectField(TEXT("from_expression"), UnrealMCPAssetCreateMaterialExpressionObject(Material, FromExpression));
-    Result->SetStringField(TEXT("from_output_name"), FromOutputName);
-    Result->SetStringField(TEXT("material_name"), Material->GetName());
-    Result->SetStringField(TEXT("material_path"), MaterialAssetData.GetObjectPathString());
-
-    Material->Modify();
-
-    bool bConnected = false;
-    if (bHasMaterialProperty)
-    {
-        EMaterialProperty MaterialProperty = MP_BaseColor;
-        FString NormalizedPropertyName;
-        if (!UnrealMCPAssetResolveMaterialProperty(MaterialPropertyText, MaterialProperty, NormalizedPropertyName, ErrorMessage))
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-        }
-
-        bConnected = UMaterialEditingLibrary::ConnectMaterialProperty(FromExpression, FromOutputName, MaterialProperty);
-        Result->SetStringField(TEXT("connection_kind"), TEXT("material_property"));
-        Result->SetStringField(TEXT("material_property"), NormalizedPropertyName);
-    }
-    else
-    {
-        UMaterialExpression* ToExpression = nullptr;
-        if (!UnrealMCPAssetResolveMaterialExpressionFromParams(Material, Params, TEXT("to_"), ToExpression, ErrorMessage))
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-        }
-
-        FString ToInputName;
-        Params->TryGetStringField(TEXT("to_input_name"), ToInputName);
-        bConnected = UMaterialEditingLibrary::ConnectMaterialExpressions(FromExpression, FromOutputName, ToExpression, ToInputName);
-        Result->SetStringField(TEXT("connection_kind"), TEXT("expression"));
-        Result->SetStringField(TEXT("to_input_name"), ToInputName);
-        Result->SetObjectField(TEXT("to_expression"), UnrealMCPAssetCreateMaterialExpressionObject(Material, ToExpression));
-    }
-
-    if (!bConnected)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("材质表达式连接失败，请检查输入输出名称是否正确"));
-    }
-
-    if (!UnrealMCPAssetSaveMaterial(Material, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetNumberField(TEXT("expression_count"), Material->GetExpressions().Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("connect_material_expressions"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleLayoutMaterialGraph(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterial* Material = nullptr;
-    FAssetData MaterialAssetData;
-    FString ErrorMessage;
-    if (!ResolveBaseMaterialFromParams(Params, Material, MaterialAssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    Material->Modify();
-    UMaterialEditingLibrary::LayoutMaterialExpressions(Material);
-
-    if (!UnrealMCPAssetSaveMaterial(Material, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(MaterialAssetData);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetNumberField(TEXT("expression_count"), Material->GetExpressions().Num());
-
-    TArray<TSharedPtr<FJsonValue>> Expressions;
-    Expressions.Reserve(Material->GetExpressions().Num());
-    for (UMaterialExpression* Expression : Material->GetExpressions())
-    {
-        Expressions.Add(MakeShared<FJsonValueObject>(UnrealMCPAssetCreateMaterialExpressionObject(Material, Expression)));
-    }
-    Result->SetArrayField(TEXT("expressions"), Expressions);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("layout_material_graph"),
+        Params);
 }
 
 TSharedPtr<FJsonObject> FUnrealMCPAssetCommands::HandleCompileMaterial(const TSharedPtr<FJsonObject>& Params)
 {
-    UMaterial* Material = nullptr;
-    FAssetData MaterialAssetData;
-    FString ErrorMessage;
-    if (!ResolveBaseMaterialFromParams(Params, Material, MaterialAssetData, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    UMaterialEditingLibrary::RecompileMaterial(Material);
-    Material->PostEditChange();
-
-    if (!UnrealMCPAssetSaveMaterial(Material, ErrorMessage))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TSharedPtr<FJsonObject> Result = CreateAssetIdentityObject(MaterialAssetData);
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetNumberField(TEXT("expression_count"), Material->GetExpressions().Num());
-    Result->SetBoolField(TEXT("compiled"), true);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.assets.asset_commands"),
+        TEXT("handle_asset_command"),
+        TEXT("compile_material"),
+        Params);
 }

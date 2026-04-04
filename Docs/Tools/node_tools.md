@@ -15,11 +15,12 @@
 | `add_blueprint_input_action_node` | `blueprint_name`、`action_name`、`node_position=None` | 添加输入动作节点。 |
 | `add_blueprint_function_node` | `blueprint_name`、`target`、`function_name`、`params=None`、`node_position=None` | 添加函数调用节点。`target` 可为组件名或 `self`。 |
 | `connect_blueprint_nodes` | `blueprint_name`、`source_node_id`、`source_pin`、`target_node_id`、`target_pin` | 连接两个节点的引脚。 |
-| `add_blueprint_variable` | `blueprint_name`、`variable_name`、`variable_type`、`is_exposed=False` | 添加 Blueprint 变量。当前对外工具不支持直接设置默认值。 |
+| `add_blueprint_variable` | `blueprint_name`、`variable_name`、`variable_type`、`is_exposed=False` | 添加 Blueprint 变量。当前由本地 Python Blueprint 命令实现，不支持直接设置默认值。 |
 | `add_blueprint_get_self_component_reference` | `blueprint_name`、`component_name`、`node_position=None` | 添加“当前 Blueprint 自有组件”的引用节点。 |
 | `add_blueprint_self_reference` | `blueprint_name`、`node_position=None` | 添加 `Self` 引用节点。 |
 | `find_blueprint_nodes` | `blueprint_name`、`node_type=None`、`event_type=None`、`include_details=False` | 查找图节点。Python 层会同时把 `event_type` 传给 `event_name` 和 `event_type` 兼容字段。 |
 | `spawn_blueprint_node` | `blueprint_name`，以及 `node_kind` / `node_class` / `function_name` / `target` / `variable_name` / `action_name` / `component_name` / `event_name` / `class_name` / `class_path` / `widget_class` / `params` / `node_position` | 通用节点生成接口，可直接表达常见语义节点，也可走反射式节点类。 |
+| `create_blueprint_graph` | `blueprint_name`、`graph_name`、`graph_type="graph"` | 创建 Blueprint 图。当前 `function` 走本地Python，`graph` / `macro` 继续走 C++ 回退路径。 |
 | `describe_blueprint_node` | `blueprint_name`、`node_id` | 读取指定节点及其 Pin 详情。 |
 | `set_blueprint_pin_default` | `blueprint_name`、`node_id`、`pin_name`、`default_value=None`、`object_path=None`、`pin_direction="input"` | 设置节点 Pin 的默认值。 |
 | `delete_blueprint_node` | `blueprint_name`、`node_id` | 删除单个图节点。 |
@@ -45,6 +46,16 @@
 
 旧文档中提到的 `default_value` 并不是当前 Python MCP 工具的正式参数。
 
+当前稳定支持的 `variable_type`：
+
+- `Boolean` / `Bool`
+- `Integer` / `Int`
+- `Float` / `Real`
+- `String`
+- `Name`
+- `Text`
+- `Vector`
+
 ### `spawn_blueprint_node`
 
 这是当前最灵活的节点接口，适合以下几类场景：
@@ -53,6 +64,21 @@
 - 已知节点类：例如直接传 `node_class`
 - 需要创建 Widget / 构造对象节点：结合 `class_name`、`class_path`、`widget_class`
 - 需要初始化输入 Pin 默认值：传 `params`
+
+### `create_blueprint_graph`
+
+- 当前支持三种 `graph_type`：
+  - `graph`
+  - `function`
+  - `macro`
+- 实现层当前收敛为 `Python + C++桥接`：
+  - `function`
+    - 走本地 Python。
+    - 复用 `BlueprintEditorLibrary.add_function_graph(...)`，返回里会补充 `graph` 描述和 `implementation=local_python`。
+  - `graph` / `macro`
+    - 继续走 C++。
+    - 原因是 UE5.7 Python 当前没有稳定暴露 `AddUbergraphPage(...)` / `AddMacroGraph(...)` 的等价入口。
+- 与旧 C++ 实现保持一致：如果图名已存在，会直接返回错误，不会复用已有图。
 
 ## 返回说明
 
@@ -71,6 +97,15 @@
 - 节点列表、匹配数量
 - 节点 Pin 元数据
 - 连接信息或默认值信息
+
+图编辑类工具补充：
+
+- `create_blueprint_graph` 当前使用 `Python + C++桥接`。
+- `function` 图创建走本地Python；`graph` / `macro` 继续走 C++。
+- 返回结果会包含 `graph` 对象，以及顶层 `graph_type`。
+- `delete_blueprint_graph` 当前使用 `本地Python` 主实现。
+- 返回结果会包含 `graph_name`、`graph_path`、`graph_type`、`deleted`、`implementation`。
+- 当目标是最后一个主图时会直接报错，避免把 Blueprint 删成不可编辑状态。
 
 ## 调用示例
 

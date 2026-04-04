@@ -50,6 +50,8 @@ public class UnrealMCP : ModuleRules
 				"Slate",
 				"SlateCore",
 				"UMG",
+				"MovieScene",
+				"MovieSceneTracks",
 				"Kismet",
 				"KismetCompiler",
 				"BlueprintGraph",

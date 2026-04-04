@@ -18,7 +18,8 @@ def register_blueprint_tools(mcp: FastMCP):
     def create_blueprint(
         ctx: Context,
         name: str,
-        parent_class: str
+        parent_class: str,
+        path: str = ""
     ) -> Dict[str, Any]:
         """Create a new Blueprint class."""
         # Import inside function to avoid circular imports
@@ -30,10 +31,14 @@ def register_blueprint_tools(mcp: FastMCP):
                 logger.error("Failed to connect to Unreal Engine")
                 return {"success": False, "message": "Failed to connect to Unreal Engine"}
                 
-            response = unreal.send_command("create_blueprint", {
+            params = {
                 "name": name,
                 "parent_class": parent_class
-            })
+            }
+            if path:
+                params["path"] = path
+
+            response = unreal.send_command("create_blueprint", params)
             
             if not response:
                 logger.error("No response from Unreal Engine")
@@ -46,6 +51,43 @@ def register_blueprint_tools(mcp: FastMCP):
             error_msg = f"Error creating blueprint: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def create_child_blueprint(
+        ctx: Context,
+        name: str,
+        parent_blueprint_name: str,
+        path: str = ""
+    ) -> Dict[str, Any]:
+        """Create a child Blueprint from an existing Blueprint asset."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "name": name,
+                "parent_blueprint_name": parent_blueprint_name,
+            }
+            if path:
+                params["path"] = path
+
+            response = unreal.send_command("create_child_blueprint", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Create child blueprint response: {response}")
+            return response or {}
+
+        except Exception as e:
+            error_msg = f"Error creating child blueprint: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
     
     @mcp.tool()
     def add_component_to_blueprint(
@@ -53,6 +95,7 @@ def register_blueprint_tools(mcp: FastMCP):
         blueprint_name: str,
         component_type: str,
         component_name: str,
+        parent_name: str = "",
         location: List[float] = [],
         rotation: List[float] = [],
         scale: List[float] = [],
@@ -85,6 +128,9 @@ def register_blueprint_tools(mcp: FastMCP):
                 "rotation": rotation or [0.0, 0.0, 0.0],
                 "scale": scale or [1.0, 1.0, 1.0]
             }
+
+            if parent_name:
+                params["parent_name"] = parent_name
             
             # Add component_properties if provided
             if component_properties and len(component_properties) > 0:
@@ -118,13 +164,87 @@ def register_blueprint_tools(mcp: FastMCP):
             error_msg = f"Error adding component to blueprint: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def remove_component_from_blueprint(
+        ctx: Context,
+        blueprint_name: str,
+        component_name: str
+    ) -> Dict[str, Any]:
+        """Remove a component from a Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            response = unreal.send_command("remove_component_from_blueprint", {
+                "blueprint_name": blueprint_name,
+                "component_name": component_name
+            })
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Remove component from blueprint response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error removing component from blueprint: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def attach_component_in_blueprint(
+        ctx: Context,
+        blueprint_name: str,
+        component_name: str,
+        parent_name: str,
+        socket_name: str = "",
+        keep_world_transform: bool = False
+    ) -> Dict[str, Any]:
+        """Attach a Blueprint scene component to another component."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": blueprint_name,
+                "component_name": component_name,
+                "parent_name": parent_name,
+                "keep_world_transform": keep_world_transform
+            }
+            if socket_name:
+                params["socket_name"] = socket_name
+
+            response = unreal.send_command("attach_component_in_blueprint", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Attach component in blueprint response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error attaching component in blueprint: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
     
     @mcp.tool()
     def set_static_mesh_properties(
         ctx: Context,
         blueprint_name: str,
         component_name: str,
-        static_mesh: str = "/Engine/BasicShapes/Cube.Cube"
+        static_mesh: str = "/Engine/BasicShapes/Cube.Cube",
+        material: str = ""
     ) -> Dict[str, Any]:
         """
         Set static mesh properties on a StaticMeshComponent.
@@ -150,6 +270,8 @@ def register_blueprint_tools(mcp: FastMCP):
                 "component_name": component_name,
                 "static_mesh": static_mesh
             }
+            if material:
+                params["material"] = material
             
             logger.info(f"Setting static mesh properties with params: {params}")
             response = unreal.send_command("set_static_mesh_properties", params)
@@ -280,6 +402,43 @@ def register_blueprint_tools(mcp: FastMCP):
             
         except Exception as e:
             error_msg = f"Error compiling blueprint: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def compile_blueprints(
+        ctx: Context,
+        blueprint_names: List[str],
+        stop_on_error: bool = False,
+        save: bool = False
+    ) -> Dict[str, Any]:
+        """Batch compile Blueprint assets."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_names": blueprint_names,
+                "stop_on_error": stop_on_error,
+                "save": save
+            }
+
+            logger.info(f"Batch compiling blueprints: {params}")
+            response = unreal.send_command("compile_blueprints", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Compile blueprints response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error compiling blueprints: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 
@@ -530,6 +689,46 @@ def register_blueprint_tools(mcp: FastMCP):
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
+    def remove_unused_blueprint_variables(
+        ctx: Context,
+        blueprint_name: str
+    ) -> Dict[str, Any]:
+        """Remove all unused member variables from a Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("remove_unused_blueprint_variables", {
+                "blueprint_name": blueprint_name
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def add_blueprint_interface(
+        ctx: Context,
+        blueprint_name: str,
+        interface_class: str
+    ) -> Dict[str, Any]:
+        """Add an interface implementation to a Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("add_blueprint_interface", {
+                "blueprint_name": blueprint_name,
+                "interface_class": interface_class,
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
     def set_blueprint_variable_default(
         ctx: Context,
         blueprint_name: str,
@@ -548,6 +747,114 @@ def register_blueprint_tools(mcp: FastMCP):
                 "blueprint_name": blueprint_name,
                 "variable_name": variable_name,
                 "default_value": default_value
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def add_blueprint_function(
+        ctx: Context,
+        blueprint_name: str,
+        function_name: str
+    ) -> Dict[str, Any]:
+        """Add a function graph to a Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("add_blueprint_function", {
+                "blueprint_name": blueprint_name,
+                "function_name": function_name
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def add_blueprint_macro(
+        ctx: Context,
+        blueprint_name: str,
+        macro_name: str
+    ) -> Dict[str, Any]:
+        """Add a macro graph to a Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("create_blueprint_graph", {
+                "blueprint_name": blueprint_name,
+                "graph_name": macro_name,
+                "graph_type": "macro"
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def delete_blueprint_function(
+        ctx: Context,
+        blueprint_name: str,
+        function_name: str
+    ) -> Dict[str, Any]:
+        """Delete a function graph from a Blueprint."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("delete_blueprint_function", {
+                "blueprint_name": blueprint_name,
+                "function_name": function_name
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_blueprint_compile_errors(
+        ctx: Context,
+        blueprint_name: str
+    ) -> Dict[str, Any]:
+        """Get the current compile errors and warnings for a Blueprint asset."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("get_blueprint_compile_errors", {
+                "blueprint_name": blueprint_name
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def rename_blueprint_member(
+        ctx: Context,
+        blueprint_name: str,
+        old_name: str,
+        new_name: str,
+        member_type: str = "auto"
+    ) -> Dict[str, Any]:
+        """Rename a Blueprint member. Graph members use local Python; variables use a Python+C++ bridge."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("rename_blueprint_member", {
+                "blueprint_name": blueprint_name,
+                "old_name": old_name,
+                "new_name": new_name,
+                "member_type": member_type,
             }) or {}
         except Exception as e:
             return {"success": False, "message": str(e)}
@@ -580,6 +887,29 @@ def register_blueprint_tools(mcp: FastMCP):
 
             return unreal.send_command("open_blueprint_editor", {
                 "blueprint_name": blueprint_name
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def reparent_blueprint(
+        ctx: Context,
+        blueprint_name: str,
+        new_parent_class: str,
+        save: bool = True
+    ) -> Dict[str, Any]:
+        """Reparent a Blueprint asset to a new parent class."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("reparent_blueprint", {
+                "blueprint_name": blueprint_name,
+                "new_parent_class": new_parent_class,
+                "save": save
             }) or {}
         except Exception as e:
             return {"success": False, "message": str(e)}

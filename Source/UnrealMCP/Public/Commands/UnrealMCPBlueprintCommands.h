@@ -31,11 +31,32 @@ private:
     TSharedPtr<FJsonObject> HandleCreateBlueprint(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 基于现有 Blueprint 创建子 Blueprint 资产。
+     * @param [in] Params 创建参数。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateChildBlueprint(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 向 Blueprint 添加组件。
      * @param [in] Params 组件参数。
      * @return TSharedPtr<FJsonObject> 添加结果。
      */
     TSharedPtr<FJsonObject> HandleAddComponentToBlueprint(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 从 Blueprint 中删除组件。
+     * @param [in] Params 删除参数。
+     * @return TSharedPtr<FJsonObject> 删除结果。
+     */
+    TSharedPtr<FJsonObject> HandleRemoveComponentFromBlueprint(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 调整 Blueprint 组件的父子关系。
+     * @param [in] Params 挂接参数。
+     * @return TSharedPtr<FJsonObject> 挂接结果。
+     */
+    TSharedPtr<FJsonObject> HandleAttachComponentInBlueprint(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 设置 Blueprint 中组件属性。
@@ -59,18 +80,18 @@ private:
     TSharedPtr<FJsonObject> HandleCompileBlueprint(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 批量编译多个 Blueprint。
+     * @param [in] Params 批量编译参数。
+     * @return TSharedPtr<FJsonObject> 编译结果。
+     */
+    TSharedPtr<FJsonObject> HandleCompileBlueprints(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 清理 Blueprint 重设父类后残留的组件与成员节点。
      * @param [in] Params 清理参数。
      * @return TSharedPtr<FJsonObject> 清理结果。
      */
     TSharedPtr<FJsonObject> HandleCleanupBlueprintForReparent(const TSharedPtr<FJsonObject>& Params);
-
-    /**
-     * @brief 生成 Blueprint Actor。
-     * @param [in] Params 生成参数。
-     * @return TSharedPtr<FJsonObject> 生成结果。
-     */
-    TSharedPtr<FJsonObject> HandleSpawnBlueprintActor(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 设置 Blueprint 默认对象属性。
@@ -101,6 +122,13 @@ private:
     TSharedPtr<FJsonObject> HandleSetGameModeDefaultPawn(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 添加 Blueprint 成员变量。
+     * @param [in] Params 变量参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddBlueprintVariable(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 删除 Blueprint 成员变量。
      * @param [in] Params 删除参数。
      * @return TSharedPtr<FJsonObject> 删除结果。
@@ -108,11 +136,53 @@ private:
     TSharedPtr<FJsonObject> HandleDeleteBlueprintVariable(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 清理 Blueprint 中未被引用的成员变量。
+     * @param [in] Params 清理参数。
+     * @return TSharedPtr<FJsonObject> 清理结果。
+     */
+    TSharedPtr<FJsonObject> HandleRemoveUnusedBlueprintVariables(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 为 Blueprint 添加接口实现。
+     * @param [in] Params 接口参数。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddBlueprintInterface(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 设置 Blueprint 成员变量默认值。
      * @param [in] Params 默认值参数。
      * @return TSharedPtr<FJsonObject> 设置结果。
      */
     TSharedPtr<FJsonObject> HandleSetBlueprintVariableDefault(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 为 Blueprint 新增函数图。
+     * @param [in] Params 函数参数。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddBlueprintFunction(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 删除 Blueprint 中指定函数图。
+     * @param [in] Params 函数参数。
+     * @return TSharedPtr<FJsonObject> 删除结果。
+     */
+    TSharedPtr<FJsonObject> HandleDeleteBlueprintFunction(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 获取 Blueprint 最新一次编译的错误与警告摘要。
+     * @param [in] Params 查询参数。
+     * @return TSharedPtr<FJsonObject> 编译结果与消息列表。
+     */
+    TSharedPtr<FJsonObject> HandleGetBlueprintCompileErrors(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 重命名 Blueprint 成员。
+     * @param [in] Params 重命名参数。
+     * @return TSharedPtr<FJsonObject> 重命名结果。
+     */
+    TSharedPtr<FJsonObject> HandleRenameBlueprintMember(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 保存 Blueprint 资产。
@@ -127,6 +197,13 @@ private:
      * @return TSharedPtr<FJsonObject> 打开结果。
      */
     TSharedPtr<FJsonObject> HandleOpenBlueprintEditor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 修改 Blueprint 的父类。
+     * @param [in] Params 改父类参数。
+     * @return TSharedPtr<FJsonObject> 改父类结果。
+     */
+    TSharedPtr<FJsonObject> HandleReparentBlueprint(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief Blueprint 组件添加辅助函数。

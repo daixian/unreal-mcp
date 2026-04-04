@@ -133,6 +133,7 @@ class AssetCreationResolver:
         "curvelinearcolor": "CurveLinearColorFactory",
         "curvetable": "CurveTableFactory",
         "curvevector": "CurveVectorFactory",
+        "dataasset": "DataAssetFactory",
         "datatable": "DataTableFactory",
         "levelsequence": "LevelSequenceFactoryNew",
         "material": "MaterialFactoryNew",
@@ -141,6 +142,7 @@ class AssetCreationResolver:
         "materialfunctionmateriallayerblend": "MaterialFunctionMaterialLayerBlendFactory",
         "materialinstanceconstant": "MaterialInstanceConstantFactoryNew",
         "materialparametercollection": "MaterialParameterCollectionFactoryNew",
+        "primarydataasset": "DataAssetFactory",
         "physicalmaterial": "PhysicalMaterialFactoryNew",
         "soundcue": "SoundCueFactoryNew",
         "texture2d": "Texture2DFactoryNew",
@@ -257,6 +259,564 @@ class AssetCreationResolver:
         if factory_reference.startswith("/"):
             return factory_reference
         return factory.get_class().get_name()
+
+
+class DataAssetCommandHelper:
+    """Handle data asset and data table creation with local Python factories."""
+
+    def __init__(self, creation_resolver: AssetCreationResolver) -> None:
+        self._creation_resolver = creation_resolver
+
+    def create_data_table(self, executor: "AssetCommandExecutor", params: Dict[str, Any]) -> Dict[str, Any]:
+        create_asset_params = dict(params)
+        table_name = str(create_asset_params.get("table_name", "")).strip()
+        if table_name and not str(create_asset_params.get("name", "")).strip():
+            create_asset_params["name"] = table_name
+
+        row_struct_reference = str(
+            create_asset_params.get("row_struct")
+            or create_asset_params.get("row_struct_path")
+            or create_asset_params.get("struct")
+            or ""
+        ).strip()
+        if not row_struct_reference:
+            raise AssetCommandError("缺少 'row_struct' 参数")
+
+        row_struct = self._resolve_row_struct(row_struct_reference)
+        create_asset_params["asset_class"] = "DataTable"
+        create_asset_params["factory_class"] = "DataTableFactory"
+
+        resolved_factory = self._creation_resolver.resolve_creation_request(create_asset_params)
+        applied_factory_options = self._creation_resolver.apply_factory_options(resolved_factory, create_asset_params)
+        try:
+            resolved_factory.factory.set_editor_property("struct", row_struct)
+        except Exception as exc:
+            raise AssetCommandError(f"设置 DataTable 行结构失败: {row_struct_reference}") from exc
+
+        applied_factory_options["row_struct"] = {
+            "name": row_struct.get_name(),
+            "path": row_struct.get_path_name(),
+        }
+        result = executor._create_asset_with_factory(create_asset_params, resolved_factory, applied_factory_options)
+        result["row_struct"] = applied_factory_options["row_struct"]
+        result["table_name"] = result["asset_name"]
+        return result
+
+    def create_data_asset(self, executor: "AssetCommandExecutor", params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._create_data_asset(executor, params, require_primary=False)
+
+    def create_primary_data_asset(self, executor: "AssetCommandExecutor", params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._create_data_asset(executor, params, require_primary=True)
+
+    def _create_data_asset(
+        self,
+        executor: "AssetCommandExecutor",
+        params: Dict[str, Any],
+        require_primary: bool,
+    ) -> Dict[str, Any]:
+        create_asset_params = dict(params)
+        preferred_name_fields = ["name"]
+        if require_primary:
+            preferred_name_fields = ["primary_data_asset_name", "data_asset_name", "name"]
+        else:
+            preferred_name_fields = ["data_asset_name", "name"]
+
+        for field_name in preferred_name_fields:
+            asset_name = str(create_asset_params.get(field_name, "")).strip()
+            if asset_name:
+                create_asset_params["name"] = asset_name
+                break
+
+        if not str(create_asset_params.get("name", "")).strip():
+            raise AssetCommandError("缺少 'name' 参数")
+
+        requested_class_reference = str(
+            create_asset_params.get("data_asset_class")
+            or create_asset_params.get("asset_class")
+            or ("PrimaryDataAsset" if require_primary else "DataAsset")
+        ).strip()
+        if not requested_class_reference:
+            raise AssetCommandError("缺少 'data_asset_class' 参数")
+
+        data_asset_class = self._creation_resolver._resolve_class_reference(
+            requested_class_reference,
+            "data_asset_class",
+        )
+        self._validate_data_asset_class(data_asset_class, requested_class_reference, require_primary)
+
+        create_asset_params["asset_class"] = requested_class_reference
+        create_asset_params["factory_class"] = "DataAssetFactory"
+
+        resolved_factory = self._creation_resolver.resolve_creation_request(create_asset_params)
+        applied_factory_options = self._creation_resolver.apply_factory_options(
+            resolved_factory,
+            create_asset_params,
+        )
+
+        resolved_class = self._resolve_UClass_object(data_asset_class)
+        result = executor._create_asset_with_factory(create_asset_params, resolved_factory, applied_factory_options)
+        result["data_asset_class"] = {
+            "name": resolved_class.get_name(),
+            "path": resolved_class.get_path_name(),
+        }
+        result["is_primary_data_asset"] = self._is_child_of_class(
+            resolved_class,
+            unreal.PrimaryDataAsset.static_class(),
+        )
+        return result
+
+    @staticmethod
+    def _resolve_UClass_object(candidate_class: Any) -> Any:
+        if candidate_class is None:
+            return None
+        if hasattr(candidate_class, "static_class"):
+            try:
+                return candidate_class.static_class()
+            except Exception:
+                return candidate_class
+        return candidate_class
+
+    def _validate_data_asset_class(
+        self,
+        data_asset_class: Any,
+        requested_class_reference: str,
+        require_primary: bool,
+    ) -> None:
+        resolved_class = self._resolve_UClass_object(data_asset_class)
+        if resolved_class is None:
+            raise AssetCommandError(f"无法解析 data_asset_class: {requested_class_reference}")
+
+        required_base_class = unreal.PrimaryDataAsset.static_class() if require_primary else unreal.DataAsset.static_class()
+        required_base_name = "PrimaryDataAsset" if require_primary else "DataAsset"
+        if not self._is_child_of_class(resolved_class, required_base_class):
+            raise AssetCommandError(
+                f"data_asset_class 必须继承自 {required_base_name}: {requested_class_reference}"
+            )
+        resolved_class_name = resolved_class.get_name()
+        if resolved_class_name in {"DataAsset", "PrimaryDataAsset"}:
+            raise AssetCommandError(
+                f"data_asset_class 不能直接使用抽象基类 {resolved_class_name}，请传具体子类"
+            )
+
+    @classmethod
+    def _is_child_of_class(cls, candidate_class: Any, required_base_class: Any) -> bool:
+        current_class = cls._resolve_UClass_object(candidate_class)
+        base_class = cls._resolve_UClass_object(required_base_class)
+        if current_class is None or base_class is None:
+            return False
+
+        base_class_path = base_class.get_path_name()
+        while current_class is not None:
+            if current_class.get_path_name() == base_class_path:
+                return True
+            try:
+                current_class = current_class.get_super_class()
+            except Exception:
+                current_class = None
+        return False
+
+    def _resolve_row_struct(self, row_struct_reference: str) -> Any:
+        normalized_reference = row_struct_reference.strip()
+        if not normalized_reference:
+            raise AssetCommandError("row_struct 不能为空")
+
+        if normalized_reference.startswith("/"):
+            candidates = [normalized_reference]
+            if "." not in normalized_reference:
+                asset_name = normalized_reference.rsplit("/", 1)[-1]
+                if asset_name:
+                    candidates.append(f"{normalized_reference}.{asset_name}")
+            for candidate in candidates:
+                try:
+                    loaded_object = unreal.load_object(None, candidate)
+                except Exception:
+                    loaded_object = None
+                if self._is_row_struct_object(loaded_object):
+                    return loaded_object
+
+        direct_struct = self._resolve_native_struct_by_name(normalized_reference)
+        if direct_struct is not None:
+            return direct_struct
+
+        asset_data = unreal.EditorAssetLibrary.find_asset_data(normalized_reference)
+        if asset_data.is_valid():
+            loaded_asset = asset_data.get_asset()
+            if self._is_row_struct_object(loaded_asset):
+                return loaded_asset
+
+        raise AssetCommandError(f"无法解析 DataTable 行结构: {row_struct_reference}")
+
+    @staticmethod
+    def _is_row_struct_object(candidate: Any) -> bool:
+        if candidate is None:
+            return False
+        try:
+            candidate_class_name = candidate.get_class().get_name()
+        except Exception:
+            candidate_class_name = ""
+        return candidate_class_name in {"ScriptStruct", "UserDefinedStruct"}
+
+    @staticmethod
+    def _resolve_native_struct_by_name(struct_reference: str) -> Any:
+        direct_candidate = getattr(unreal, struct_reference, None)
+        if direct_candidate is not None and hasattr(direct_candidate, "static_struct"):
+            try:
+                return direct_candidate.static_struct()
+            except Exception:
+                return None
+
+        normalized_reference = struct_reference.casefold()
+        for attribute_name in dir(unreal):
+            if attribute_name.casefold() != normalized_reference:
+                continue
+            attribute_value = getattr(unreal, attribute_name, None)
+            if attribute_value is None or not hasattr(attribute_value, "static_struct"):
+                continue
+            try:
+                return attribute_value.static_struct()
+            except Exception:
+                return None
+        return None
+
+
+class DataTableCommandHelper:
+    """Handle DataTable row inspection and mutation with local Python APIs."""
+
+    def __init__(self, resolver: AssetResolver) -> None:
+        self._resolver = resolver
+
+    def get_data_table_rows(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        data_table, identity = self._resolve_data_table_from_params(params)
+        exported_rows = self._export_rows(data_table)
+        requested_row_name = str(params.get("row_name", "")).strip()
+
+        if requested_row_name:
+            matched_row = self._find_row_by_name(exported_rows, requested_row_name)
+            if matched_row is None:
+                raise AssetCommandError(f"DataTable 中不存在行: {requested_row_name}")
+            rows_payload = [matched_row]
+        else:
+            rows_payload = exported_rows
+
+        row_names = [str(row_name) for row_name in data_table.get_row_names()]
+        result = dict(identity)
+        result.update(
+            {
+                "success": True,
+                "row_struct": self._build_row_struct_identity(data_table),
+                "row_count": len(row_names),
+                "row_names": row_names,
+                "returned_row_count": len(rows_payload),
+                "rows": rows_payload,
+            }
+        )
+        if requested_row_name:
+            result["requested_row_name"] = requested_row_name
+        return result
+
+    def import_data_table(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        data_table, identity = self._resolve_data_table_from_params(params)
+        source_file = self._require_existing_source_file(params)
+        import_format = self._normalize_data_table_file_format(
+            str(params.get("format", "auto")).strip(),
+            source_file,
+        )
+
+        import_callable = self._resolve_import_callable(data_table, import_format)
+        try:
+            imported = bool(import_callable(source_file))
+        except Exception as exc:
+            raise AssetCommandError(f"导入 DataTable 失败: {source_file}") from exc
+
+        if not imported:
+            raise AssetCommandError(f"导入 DataTable 失败: {source_file}")
+
+        save_asset = bool(params.get("save_asset", True))
+        saved = self._save_data_table_if_needed(data_table, save_asset)
+        row_names = [str(name) for name in data_table.get_row_names()]
+
+        result = dict(identity)
+        result.update(
+            {
+                "success": True,
+                "source_file": source_file,
+                "format": import_format,
+                "save_asset": save_asset,
+                "saved": saved,
+                "row_count": len(row_names),
+                "row_names": row_names,
+                "row_struct": self._build_row_struct_identity(data_table),
+                "implementation": "local_python",
+            }
+        )
+        return result
+
+    def set_data_table_row(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        data_table, identity = self._resolve_data_table_from_params(params)
+        row_name = str(params.get("row_name", "")).strip()
+        if not row_name:
+            raise AssetCommandError("缺少 'row_name' 参数")
+
+        row_data = params.get("row_data")
+        if not isinstance(row_data, dict):
+            raise AssetCommandError("'row_data' 必须是对象")
+
+        exported_rows = self._export_rows(data_table)
+        normalized_row = dict(row_data)
+        normalized_row["Name"] = row_name
+
+        replaced_existing = False
+        for index, existing_row in enumerate(exported_rows):
+            existing_row_name = str(existing_row.get("Name", "")).strip()
+            if existing_row_name == row_name:
+                exported_rows[index] = normalized_row
+                replaced_existing = True
+                break
+        if not replaced_existing:
+            exported_rows.append(normalized_row)
+
+        self._fill_rows(data_table, exported_rows)
+        save_asset = bool(params.get("save_asset", True))
+        saved = self._save_data_table_if_needed(data_table, save_asset)
+
+        result = dict(identity)
+        result.update(
+            {
+                "success": True,
+                "row_name": row_name,
+                "row_data": normalized_row,
+                "replaced_existing": replaced_existing,
+                "save_asset": save_asset,
+                "saved": saved,
+                "row_count": len(exported_rows),
+                "row_names": [str(row.get("Name", "")) for row in exported_rows],
+                "row_struct": self._build_row_struct_identity(data_table),
+            }
+        )
+        return result
+
+    def export_data_table(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        data_table, identity = self._resolve_data_table_from_params(params)
+        export_file = self._require_export_file_path(params)
+        export_format = self._normalize_data_table_file_format(
+            str(params.get("format", "auto")).strip(),
+            export_file,
+        )
+
+        export_callable = self._resolve_export_callable(data_table, export_format)
+        try:
+            exported = bool(export_callable(export_file))
+        except Exception as exc:
+            raise AssetCommandError(f"导出 DataTable 失败: {export_file}") from exc
+
+        if not exported:
+            raise AssetCommandError(f"导出 DataTable 失败: {export_file}")
+
+        row_names = [str(name) for name in data_table.get_row_names()]
+        result = dict(identity)
+        result.update(
+            {
+                "success": True,
+                "export_file": export_file,
+                "format": export_format,
+                "row_count": len(row_names),
+                "row_names": row_names,
+                "row_struct": self._build_row_struct_identity(data_table),
+                "implementation": "local_python",
+            }
+        )
+        return result
+
+    def remove_data_table_row(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        data_table, identity = self._resolve_data_table_from_params(params)
+        row_name = str(params.get("row_name", "")).strip()
+        if not row_name:
+            raise AssetCommandError("缺少 'row_name' 参数")
+
+        exported_rows = self._export_rows(data_table)
+        filtered_rows = [row for row in exported_rows if str(row.get("Name", "")).strip() != row_name]
+        if len(filtered_rows) == len(exported_rows):
+            raise AssetCommandError(f"DataTable 中不存在行: {row_name}")
+
+        try:
+            unreal.DataTableFunctionLibrary.remove_data_table_row(data_table, row_name)
+        except Exception as exc:
+            raise AssetCommandError(f"删除 DataTable 行失败: {row_name}") from exc
+
+        save_asset = bool(params.get("save_asset", True))
+        saved = self._save_data_table_if_needed(data_table, save_asset)
+        remaining_row_names = [str(name) for name in data_table.get_row_names()]
+
+        result = dict(identity)
+        result.update(
+            {
+                "success": True,
+                "row_name": row_name,
+                "removed": True,
+                "save_asset": save_asset,
+                "saved": saved,
+                "row_count": len(remaining_row_names),
+                "row_names": remaining_row_names,
+                "row_struct": self._build_row_struct_identity(data_table),
+            }
+        )
+        return result
+
+    def _resolve_data_table_from_params(self, params: Dict[str, Any]) -> Tuple[unreal.DataTable, Dict[str, Any]]:
+        resolved_asset = self._resolver.resolve_from_params(params)
+        data_table = resolved_asset.asset_data.get_asset()
+        if not data_table:
+            raise AssetCommandError(f"加载资源失败: {resolved_asset.to_identity()['object_path']}")
+        if not isinstance(data_table, unreal.DataTable):
+            raise AssetCommandError(f"目标资源不是 DataTable: {resolved_asset.to_identity()['object_path']}")
+        return data_table, resolved_asset.to_identity()
+
+    @staticmethod
+    def _export_rows(data_table: unreal.DataTable) -> List[Dict[str, Any]]:
+        try:
+            exported_json = data_table.export_to_json_string()
+        except Exception as exc:
+            raise AssetCommandError(f"导出 DataTable JSON 失败: {data_table.get_path_name()}") from exc
+
+        if not exported_json:
+            return []
+        try:
+            exported_rows = json.loads(exported_json)
+        except json.JSONDecodeError as exc:
+            raise AssetCommandError(f"解析 DataTable JSON 失败: {data_table.get_path_name()}") from exc
+        if not isinstance(exported_rows, list):
+            raise AssetCommandError("DataTable 导出结果不是数组")
+
+        normalized_rows: List[Dict[str, Any]] = []
+        for row in exported_rows:
+            if not isinstance(row, dict):
+                raise AssetCommandError("DataTable 导出结果包含非对象行")
+            normalized_rows.append(dict(row))
+        return normalized_rows
+
+    @staticmethod
+    def _fill_rows(data_table: unreal.DataTable, rows: List[Dict[str, Any]]) -> None:
+        try:
+            fill_success = data_table.fill_from_json_string(
+                json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+            )
+        except Exception as exc:
+            raise AssetCommandError(f"写入 DataTable JSON 失败: {data_table.get_path_name()}") from exc
+
+        if not fill_success:
+            raise AssetCommandError(f"DataTable 拒绝写入 JSON: {data_table.get_path_name()}")
+
+    @staticmethod
+    def _find_row_by_name(rows: List[Dict[str, Any]], row_name: str) -> Optional[Dict[str, Any]]:
+        for row in rows:
+            if str(row.get("Name", "")).strip() == row_name:
+                return dict(row)
+        return None
+
+    @staticmethod
+    def _save_data_table_if_needed(data_table: unreal.DataTable, save_asset: bool) -> bool:
+        if not save_asset:
+            return False
+
+        saved = bool(unreal.EditorAssetLibrary.save_loaded_asset(data_table, only_if_is_dirty=False))
+        if not saved:
+            saved = bool(
+                unreal.EditorAssetLibrary.save_asset(
+                    data_table.get_path_name(),
+                    only_if_is_dirty=False,
+                )
+            )
+        if not saved:
+            raise AssetCommandError(f"保存 DataTable 失败: {data_table.get_path_name()}")
+        return True
+
+    @staticmethod
+    def _normalize_data_table_file_format(requested_format: str, file_path: str) -> str:
+        normalized_format = (requested_format or "auto").strip().casefold()
+        if normalized_format in {"", "auto"}:
+            extension = os.path.splitext(file_path)[1].casefold()
+            if extension == ".csv":
+                return "csv"
+            if extension == ".json":
+                return "json"
+            raise AssetCommandError(f"无法从文件扩展名推断 DataTable 格式: {file_path}")
+
+        if normalized_format not in {"csv", "json"}:
+            raise AssetCommandError(f"不支持的 DataTable 格式: {requested_format}")
+        return normalized_format
+
+    @staticmethod
+    def _require_existing_source_file(params: Dict[str, Any]) -> str:
+        source_file = str(params.get("source_file", "") or params.get("file_path", "")).strip()
+        if not source_file:
+            raise AssetCommandError("缺少 'source_file' 参数")
+        return AssetCommandDispatcher._normalize_existing_file_path(source_file)
+
+    @staticmethod
+    def _require_export_file_path(params: Dict[str, Any]) -> str:
+        export_file = str(
+            params.get("export_file", "")
+            or params.get("output_file", "")
+            or params.get("file_path", "")
+        ).strip()
+        if not export_file:
+            raise AssetCommandError("缺少 'export_file' 参数")
+
+        normalized_path = os.path.abspath(os.path.expanduser(export_file))
+        parent_directory = os.path.dirname(normalized_path)
+        if not parent_directory:
+            raise AssetCommandError(f"导出路径缺少目录部分: {normalized_path}")
+
+        os.makedirs(parent_directory, exist_ok=True)
+        return normalized_path
+
+    @staticmethod
+    def _resolve_import_callable(data_table: unreal.DataTable, import_format: str) -> Any:
+        if import_format == "csv":
+            import_callable = getattr(data_table, "fill_from_csv_file", None)
+            if callable(import_callable):
+                return import_callable
+            import_callable = getattr(unreal.DataTableFunctionLibrary, "fill_data_table_from_csv_file", None)
+            if callable(import_callable):
+                return lambda file_path: import_callable(data_table, file_path)
+        else:
+            import_callable = getattr(data_table, "fill_from_json_file", None)
+            if callable(import_callable):
+                return import_callable
+            import_callable = getattr(unreal.DataTableFunctionLibrary, "fill_data_table_from_json_file", None)
+            if callable(import_callable):
+                return lambda file_path: import_callable(data_table, file_path)
+
+        raise AssetCommandError(f"当前 UE Python 未暴露 DataTable {import_format.upper()} 导入接口")
+
+    @staticmethod
+    def _resolve_export_callable(data_table: unreal.DataTable, export_format: str) -> Any:
+        if export_format == "csv":
+            export_callable = getattr(data_table, "export_to_csv_file", None)
+            if callable(export_callable):
+                return export_callable
+            export_callable = getattr(unreal.DataTableFunctionLibrary, "export_data_table_to_csv_file", None)
+            if callable(export_callable):
+                return lambda file_path: export_callable(data_table, file_path)
+        else:
+            export_callable = getattr(data_table, "export_to_json_file", None)
+            if callable(export_callable):
+                return export_callable
+            export_callable = getattr(unreal.DataTableFunctionLibrary, "export_data_table_to_json_file", None)
+            if callable(export_callable):
+                return lambda file_path: export_callable(data_table, file_path)
+
+        raise AssetCommandError(f"当前 UE Python 未暴露 DataTable {export_format.upper()} 导出接口")
+
+    @staticmethod
+    def _build_row_struct_identity(data_table: unreal.DataTable) -> Dict[str, str]:
+        row_struct = data_table.get_row_struct()
+        if not row_struct:
+            return {"name": "", "path": ""}
+        return {
+            "name": row_struct.get_name(),
+            "path": row_struct.get_path_name(),
+        }
 
 
 class ReimportCommandExecutor:
@@ -867,11 +1427,139 @@ class MaterialCommandExecutor:
         )
         return result
 
+    def add_material_expression(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        material, resolved_asset = self._resolve_base_material_from_params(params)
+        expression_class, resolved_class_path = self._resolve_material_expression_class(params)
+        selected_asset_path = str(
+            params.get("selected_asset_path", "") or params.get("selected_asset", "")
+        ).strip()
+        selected_asset = None
+        if selected_asset_path:
+            selected_asset = self._resolver.resolve_reference(selected_asset_path).asset_data.get_asset()
+            if selected_asset is None:
+                raise AssetCommandError(f"无法解析 selected_asset_path: {selected_asset_path}")
+
+        node_pos_x, node_pos_y = self._resolve_material_node_position(params)
+        material.modify()
+        expression = self._create_material_expression(
+            material,
+            expression_class,
+            selected_asset,
+            node_pos_x,
+            node_pos_y,
+        )
+        if expression is None:
+            raise AssetCommandError("创建材质表达式失败")
+
+        applied_properties = self._apply_material_expression_property_overrides(expression, params)
+        self._save_material(material)
+
+        result = self._create_material_expression_payload(material, expression)
+        result.update(
+            {
+                "success": True,
+                "selected_asset_path": selected_asset.get_path_name() if selected_asset else "",
+                "resolved_expression_class_path": resolved_class_path,
+                "applied_properties": applied_properties,
+                "expression_count": len(self._get_material_expressions(material)),
+            }
+        )
+        return result
+
+    def connect_material_expressions(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        material, resolved_asset = self._resolve_base_material_from_params(params)
+        from_expression = self._resolve_material_expression_from_params(material, params, "from_")
+        from_output_name = str(params.get("from_output_name", "")).strip()
+        material_property_text = str(params.get("material_property", "") or params.get("property", "")).strip()
+        has_material_property = bool(material_property_text)
+        has_to_expression = any(
+            params.get(field) not in (None, "")
+            for field in ("to_expression_path", "to_expression_name", "to_expression_index")
+        )
+        if has_material_property == has_to_expression:
+            raise AssetCommandError("必须且只能提供一组目标：to_expression_* 或 material_property")
+
+        result: Dict[str, Any] = {
+            "from_expression": self._create_material_expression_payload(material, from_expression),
+            "from_output_name": from_output_name,
+            "material_name": resolved_asset.to_identity()["asset_name"],
+            "material_path": resolved_asset.to_identity()["object_path"],
+        }
+
+        material.modify()
+        material_lib = unreal.MaterialEditingLibrary
+        if has_material_property:
+            material_property, normalized_property_name = self._resolve_material_property(material_property_text)
+            connected = bool(material_lib.connect_material_property(from_expression, from_output_name, material_property))
+            result["connection_kind"] = "material_property"
+            result["material_property"] = normalized_property_name
+        else:
+            to_expression = self._resolve_material_expression_from_params(material, params, "to_")
+            to_input_name = str(params.get("to_input_name", "")).strip()
+            connected = bool(
+                material_lib.connect_material_expressions(from_expression, from_output_name, to_expression, to_input_name)
+            )
+            result["connection_kind"] = "expression"
+            result["to_input_name"] = to_input_name
+            result["to_expression"] = self._create_material_expression_payload(material, to_expression)
+
+        if not connected:
+            raise AssetCommandError("材质表达式连接失败，请检查输入输出名称是否正确")
+
+        self._save_material(material)
+        result["success"] = True
+        result["expression_count"] = len(self._get_material_expressions(material))
+        return result
+
+    def layout_material_graph(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        material, resolved_asset = self._resolve_base_material_from_params(params)
+        material.modify()
+        unreal.MaterialEditingLibrary.layout_material_expressions(material)
+        self._save_material(material)
+
+        expressions = [
+            self._create_material_expression_payload(material, expression)
+            for expression in self._get_material_expressions(material)
+        ]
+        result = resolved_asset.to_identity()
+        result.update(
+            {
+                "success": True,
+                "expression_count": len(expressions),
+                "expressions": expressions,
+            }
+        )
+        return result
+
+    def compile_material(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        material, resolved_asset = self._resolve_base_material_from_params(params)
+        unreal.MaterialEditingLibrary.recompile_material(material)
+        self._save_material(material)
+
+        result = resolved_asset.to_identity()
+        result.update(
+            {
+                "success": True,
+                "expression_count": len(self._get_material_expressions(material)),
+                "compiled": True,
+            }
+        )
+        return result
+
     def _resolve_material_interface_by_reference(self, reference: str) -> unreal.MaterialInterface:
         material_asset = self._resolver.resolve_reference(reference).asset_data.get_asset()
         if not material_asset or not isinstance(material_asset, unreal.MaterialInterface):
             raise AssetCommandError(f"资源不是材质或材质实例: {reference}")
         return material_asset
+
+    def _resolve_base_material_from_params(
+        self,
+        params: Dict[str, Any],
+    ) -> Tuple[unreal.Material, ResolvedAsset]:
+        material_asset, resolved_asset = self._resolve_material_interface_from_params(params)
+        if not isinstance(material_asset, unreal.Material):
+            raise AssetCommandError(f"资源不是 Material: {resolved_asset.to_identity()['object_path']}")
+        return material_asset, resolved_asset
 
     def _resolve_material_interface_from_params(
         self,
@@ -1238,6 +1926,402 @@ class MaterialCommandExecutor:
         unreal.MaterialEditingLibrary.update_material_instance(material_instance)
         self._save_loaded_asset(material_instance, material_instance.get_path_name(), "保存材质实例失败")
 
+    def _save_material(self, material: unreal.Material) -> None:
+        if hasattr(material, "post_edit_change"):
+            material.post_edit_change()
+        self._save_loaded_asset(material, material.get_path_name(), "保存材质失败")
+
+    def _resolve_material_expression_class(self, params: Dict[str, Any]) -> Tuple[Any, str]:
+        class_reference = str(
+            params.get("expression_class", "")
+            or params.get("expression_class_path", "")
+            or params.get("class_name", "")
+        ).strip()
+        if not class_reference:
+            raise AssetCommandError("缺少 'expression_class' 参数")
+
+        candidate_paths: List[str] = []
+        if class_reference.startswith("/"):
+            candidate_paths.append(class_reference)
+        else:
+            normalized_name = class_reference
+            if not normalized_name.startswith("MaterialExpression"):
+                normalized_name = f"MaterialExpression{normalized_name}"
+            candidate_paths.append(f"/Script/Engine.{normalized_name}")
+            candidate_paths.append(f"/Script/Engine.{class_reference}")
+
+        for candidate_path in candidate_paths:
+            try:
+                loaded_class = unreal.load_class(None, candidate_path)
+            except Exception:
+                loaded_class = None
+            if self._is_material_expression_class(loaded_class):
+                return loaded_class, candidate_path
+            if loaded_class:
+                raise AssetCommandError(f"类型不是材质表达式: {candidate_path}")
+
+        lowered_reference = class_reference.casefold()
+        normalized_reference = f"materialexpression{lowered_reference.removeprefix('materialexpression')}"
+        for attribute_name in dir(unreal):
+            if attribute_name.casefold() not in {lowered_reference, normalized_reference}:
+                continue
+            loaded_class = getattr(unreal, attribute_name, None)
+            if self._is_material_expression_class(loaded_class):
+                return loaded_class, f"/Script/Engine.{attribute_name}"
+
+        raise AssetCommandError(f"未找到材质表达式类型: {class_reference}")
+
+    @staticmethod
+    def _is_material_expression_class(loaded_class: Any) -> bool:
+        if loaded_class is None:
+            return False
+        try:
+            default_object = unreal.get_default_object(loaded_class)
+            if isinstance(default_object, unreal.MaterialExpression):
+                return True
+        except Exception:
+            pass
+
+        class_name = ""
+        try:
+            class_name = str(loaded_class.get_name())
+        except Exception:
+            class_name = str(getattr(loaded_class, "__name__", loaded_class))
+        return class_name.startswith("MaterialExpression")
+
+    @staticmethod
+    def _resolve_material_node_position(params: Dict[str, Any]) -> Tuple[int, int]:
+        node_position = params.get("node_position")
+        if isinstance(node_position, list) and len(node_position) >= 2:
+            return int(round(float(node_position[0]))), int(round(float(node_position[1])))
+
+        node_pos_x = int(round(float(params.get("node_pos_x", 0) or 0)))
+        node_pos_y = int(round(float(params.get("node_pos_y", 0) or 0)))
+        return node_pos_x, node_pos_y
+
+    @staticmethod
+    def _create_material_expression(
+        material: unreal.Material,
+        expression_class: Any,
+        selected_asset: Optional[unreal.Object],
+        node_pos_x: int,
+        node_pos_y: int,
+    ) -> Optional[unreal.MaterialExpression]:
+        material_lib = unreal.MaterialEditingLibrary
+        create_expression_ex = getattr(material_lib, "create_material_expression_ex", None)
+        if callable(create_expression_ex):
+            return create_expression_ex(material, None, expression_class, selected_asset, node_pos_x, node_pos_y)
+
+        create_expression = getattr(material_lib, "create_material_expression", None)
+        if callable(create_expression):
+            expression = create_expression(material, expression_class, node_pos_x, node_pos_y)
+            if expression is not None and selected_asset is not None:
+                try:
+                    expression.set_editor_property("texture", selected_asset)
+                except Exception:
+                    pass
+            return expression
+        raise AssetCommandError("当前编辑器未暴露材质表达式创建接口")
+
+    def _apply_material_expression_property_overrides(
+        self,
+        expression: unreal.MaterialExpression,
+        params: Dict[str, Any],
+    ) -> List[str]:
+        property_values = params.get("property_values")
+        if not isinstance(property_values, dict):
+            return []
+
+        applied_properties: List[str] = []
+        for property_name in sorted(property_values.keys(), key=str.casefold):
+            self._set_material_expression_property(expression, str(property_name), property_values[property_name])
+            applied_properties.append(str(property_name))
+        return applied_properties
+
+    def _set_material_expression_property(
+        self,
+        expression: unreal.MaterialExpression,
+        property_name: str,
+        property_value: Any,
+    ) -> None:
+        normalized_property_name = str(property_name or "").strip()
+        if not normalized_property_name:
+            raise AssetCommandError("表达式属性名不能为空")
+
+        try:
+            current_value = expression.get_editor_property(normalized_property_name)
+        except Exception as exc:
+            raise AssetCommandError(f"表达式属性不存在: {normalized_property_name}") from exc
+
+        converted_value = self._convert_material_expression_property_value(
+            current_value,
+            property_value,
+            normalized_property_name,
+        )
+        try:
+            expression.set_editor_property(normalized_property_name, converted_value)
+        except Exception as exc:
+            raise AssetCommandError(f"设置表达式属性失败 {normalized_property_name}: {exc}") from exc
+
+    def _convert_material_expression_property_value(
+        self,
+        current_value: Any,
+        property_value: Any,
+        property_name: str,
+    ) -> Any:
+        current_type_name = type(current_value).__name__
+        if isinstance(current_value, bool):
+            return bool(property_value)
+        if isinstance(current_value, int) and not isinstance(current_value, bool):
+            return int(property_value)
+        if isinstance(current_value, float):
+            return float(property_value)
+        if isinstance(current_value, str):
+            return str(property_value)
+        if current_value is None and isinstance(property_value, (str, dict)):
+            return self._resolve_object_property_value(property_value, property_name)
+        if current_type_name == "Vector2D":
+            return self._build_vector2d(property_value, property_name)
+        if current_type_name in {"Vector", "Vector3f"}:
+            return self._build_vector(property_value, property_name)
+        if current_type_name in {"LinearColor", "Color"}:
+            return self._build_linear_color(property_value, property_name)
+        if current_type_name == "Rotator":
+            return self._build_rotator(property_value, property_name)
+        if hasattr(current_value, "get_path_name"):
+            return self._resolve_object_property_value(property_value, property_name)
+        if hasattr(type(current_value), "__members__") and isinstance(property_value, str):
+            enum_members = getattr(type(current_value), "__members__", {})
+            normalized_value = property_value.strip()
+            if normalized_value in enum_members:
+                return enum_members[normalized_value]
+            lowered_value = normalized_value.casefold()
+            for member_name, member_value in enum_members.items():
+                if member_name.casefold() == lowered_value:
+                    return member_value
+        return property_value
+
+    def _resolve_object_property_value(self, property_value: Any, property_name: str) -> Any:
+        if property_value in (None, "", {}):
+            return None
+        if isinstance(property_value, dict):
+            object_reference = str(
+                property_value.get("asset_path", "")
+                or property_value.get("object_path", "")
+                or property_value.get("name", "")
+            ).strip()
+        else:
+            object_reference = str(property_value).strip()
+        if not object_reference:
+            return None
+        resolved_asset = self._resolver.resolve_reference(object_reference)
+        resolved_object = resolved_asset.asset_data.get_asset()
+        if resolved_object is None:
+            raise AssetCommandError(f"无法解析对象属性 {property_name}: {object_reference}")
+        return resolved_object
+
+    @staticmethod
+    def _build_vector2d(property_value: Any, property_name: str) -> unreal.Vector2D:
+        if isinstance(property_value, list) and len(property_value) >= 2:
+            return unreal.Vector2D(float(property_value[0]), float(property_value[1]))
+        if isinstance(property_value, dict):
+            return unreal.Vector2D(float(property_value["X"]), float(property_value["Y"]))
+        raise AssetCommandError(f"属性 {property_name} 需要 Vector2D")
+
+    @staticmethod
+    def _build_vector(property_value: Any, property_name: str) -> unreal.Vector:
+        if isinstance(property_value, list) and len(property_value) >= 3:
+            return unreal.Vector(float(property_value[0]), float(property_value[1]), float(property_value[2]))
+        if isinstance(property_value, dict):
+            return unreal.Vector(
+                float(property_value["X"]),
+                float(property_value["Y"]),
+                float(property_value["Z"]),
+            )
+        raise AssetCommandError(f"属性 {property_name} 需要 Vector")
+
+    @staticmethod
+    def _build_linear_color(property_value: Any, property_name: str) -> unreal.LinearColor:
+        if isinstance(property_value, list) and len(property_value) >= 3:
+            alpha = float(property_value[3]) if len(property_value) >= 4 else 1.0
+            return unreal.LinearColor(
+                float(property_value[0]),
+                float(property_value[1]),
+                float(property_value[2]),
+                alpha,
+            )
+        if isinstance(property_value, dict):
+            return unreal.LinearColor(
+                float(property_value["R"]),
+                float(property_value["G"]),
+                float(property_value["B"]),
+                float(property_value.get("A", 1.0)),
+            )
+        raise AssetCommandError(f"属性 {property_name} 需要 LinearColor")
+
+    @staticmethod
+    def _build_rotator(property_value: Any, property_name: str) -> unreal.Rotator:
+        if isinstance(property_value, list) and len(property_value) >= 3:
+            return unreal.Rotator(float(property_value[0]), float(property_value[1]), float(property_value[2]))
+        if isinstance(property_value, dict):
+            return unreal.Rotator(
+                float(property_value["Pitch"]),
+                float(property_value["Yaw"]),
+                float(property_value["Roll"]),
+            )
+        raise AssetCommandError(f"属性 {property_name} 需要 Rotator")
+
+    @staticmethod
+    def _get_material_expressions(material: unreal.Material) -> List[unreal.MaterialExpression]:
+        expressions = [
+            expression
+            for expression in unreal.ObjectIterator(unreal.MaterialExpression)
+            if expression is not None and expression.get_outer() == material
+        ]
+        expressions.sort(key=lambda expression: expression.get_path_name())
+        return expressions
+
+    def _create_material_expression_payload(
+        self,
+        material: unreal.Material,
+        expression: unreal.MaterialExpression,
+    ) -> Dict[str, Any]:
+        outputs = self._get_material_expression_output_names(expression)
+        inputs = self._get_material_expression_input_names(expression)
+        node_pos_x, node_pos_y = unreal.MaterialEditingLibrary.get_material_expression_node_position(expression)
+        return {
+            "material_name": material.get_name() if material else "",
+            "material_path": material.get_path_name() if material else "",
+            "expression_name": expression.get_name() if expression else "",
+            "expression_path": expression.get_path_name() if expression else "",
+            "expression_class": expression.get_class().get_name() if expression else "",
+            "expression_class_path": expression.get_class().get_path_name() if expression else "",
+            "expression_index": self._find_material_expression_index(material, expression),
+            "node_pos_x": int(node_pos_x) if expression else 0,
+            "node_pos_y": int(node_pos_y) if expression else 0,
+            "input_names": inputs,
+            "output_names": outputs,
+            "input_count": len(inputs),
+            "output_count": len(outputs),
+        }
+
+    def _find_material_expression_index(
+        self,
+        material: unreal.Material,
+        expression: unreal.MaterialExpression,
+    ) -> int:
+        for expression_index, candidate in enumerate(self._get_material_expressions(material)):
+            if candidate == expression:
+                return expression_index
+        return -1
+
+    @staticmethod
+    def _get_material_expression_input_names(expression: unreal.MaterialExpression) -> List[str]:
+        get_input_names = getattr(unreal.MaterialEditingLibrary, "get_material_expression_input_names", None)
+        if callable(get_input_names):
+            return [str(input_name) for input_name in list(get_input_names(expression) or [])]
+
+        count_inputs = getattr(expression, "count_inputs", None)
+        get_input_name = getattr(expression, "get_input_name", None)
+        if callable(count_inputs) and callable(get_input_name):
+            input_names: List[str] = []
+            for input_index in range(int(count_inputs())):
+                input_name = get_input_name(input_index)
+                input_names.append("" if input_name is None else str(input_name))
+            return input_names
+        return []
+
+    @staticmethod
+    def _get_material_expression_output_names(expression: unreal.MaterialExpression) -> List[str]:
+        get_outputs = getattr(expression, "get_outputs", None)
+        if not callable(get_outputs):
+            return ["output_0"]
+        output_names: List[str] = []
+        for output_index, output in enumerate(list(get_outputs()) or []):
+            output_name = getattr(output, "output_name", None)
+            normalized_output_name = str(output_name) if output_name not in (None, "", "None") else f"output_{output_index}"
+            output_names.append(normalized_output_name)
+        return output_names or ["output_0"]
+
+    def _resolve_material_expression_from_params(
+        self,
+        material: unreal.Material,
+        params: Dict[str, Any],
+        prefix: str,
+    ) -> unreal.MaterialExpression:
+        expression_path = str(params.get(f"{prefix}expression_path", "")).strip()
+        if expression_path:
+            for expression in self._get_material_expressions(material):
+                if expression.get_path_name() == expression_path:
+                    return expression
+            raise AssetCommandError(f"未找到表达式路径 {expression_path}")
+
+        raw_index = params.get(f"{prefix}expression_index")
+        if raw_index not in (None, ""):
+            expression_index = int(raw_index)
+            expressions = self._get_material_expressions(material)
+            if expression_index < 0 or expression_index >= len(expressions):
+                raise AssetCommandError(f"表达式索引越界: {expression_index}")
+            return expressions[expression_index]
+
+        expression_name = str(params.get(f"{prefix}expression_name", "")).strip()
+        if not expression_name:
+            raise AssetCommandError(
+                f"缺少 '{prefix}expression_path'、'{prefix}expression_index' 或 '{prefix}expression_name' 参数"
+            )
+
+        matched_expressions = [
+            expression
+            for expression in self._get_material_expressions(material)
+            if expression.get_name().casefold() == expression_name.casefold()
+        ]
+        if len(matched_expressions) == 1:
+            return matched_expressions[0]
+        if len(matched_expressions) > 1:
+            candidate_paths = ", ".join(expression.get_path_name() for expression in matched_expressions)
+            raise AssetCommandError(
+                f"表达式名称 {expression_name} 匹配到多个节点，请改用 expression_path 或 expression_index: {candidate_paths}"
+            )
+        raise AssetCommandError(f"未找到表达式名称: {expression_name}")
+
+    @staticmethod
+    def _resolve_material_property(property_text: str) -> Tuple[Any, str]:
+        normalized_name = property_text.strip().lower().replace("-", "_").replace(" ", "_")
+        property_enum = unreal.MaterialProperty
+        property_map: Dict[str, Any] = {}
+        property_specs = {
+            "base_color": "MP_BASE_COLOR",
+            "emissive_color": "MP_EMISSIVE_COLOR",
+            "opacity": "MP_OPACITY",
+            "opacity_mask": "MP_OPACITY_MASK",
+            "metallic": "MP_METALLIC",
+            "specular": "MP_SPECULAR",
+            "roughness": "MP_ROUGHNESS",
+            "anisotropy": "MP_ANISOTROPY",
+            "normal": "MP_NORMAL",
+            "tangent": "MP_TANGENT",
+            "world_position_offset": "MP_WORLD_POSITION_OFFSET",
+            "subsurface_color": "MP_SUBSURFACE_COLOR",
+            "ambient_occlusion": "MP_AMBIENT_OCCLUSION",
+            "refraction": "MP_REFRACTION",
+            "pixel_depth_offset": "MP_PIXEL_DEPTH_OFFSET",
+            "shading_model": "MP_SHADING_MODEL",
+            "surface_thickness": "MP_SURFACE_THICKNESS",
+            "displacement": "MP_DISPLACEMENT",
+            "front_material": "MP_FRONT_MATERIAL",
+            "clear_coat": "MP_CUSTOM_DATA_0",
+            "clear_coat_roughness": "MP_CUSTOM_DATA_1",
+            "custom_data_0": "MP_CUSTOM_DATA_0",
+            "custom_data_1": "MP_CUSTOM_DATA_1",
+        }
+        for property_alias, enum_name in property_specs.items():
+            enum_value = getattr(property_enum, enum_name, None)
+            if enum_value is not None:
+                property_map[property_alias] = enum_value
+        if normalized_name not in property_map:
+            raise AssetCommandError(f"不支持的材质属性: {property_text}")
+        return property_map[normalized_name], normalized_name
+
     def _resolve_material_assignment_from_params(
         self,
         params: Dict[str, Any],
@@ -1438,14 +2522,228 @@ class MaterialCommandExecutor:
             return {"asset_path": asset_reference}
 
 
+class SourceControlCommandHelper:
+    """Execute source control related asset commands."""
+
+    def __init__(self, resolver: AssetResolver) -> None:
+        self._resolver = resolver
+
+    def get_source_control_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Return source control state for the resolved asset."""
+        resolved_asset = self._resolver.resolve_from_params(params)
+        identity = resolved_asset.to_identity()
+
+        result = dict(identity)
+        result.update(self._build_provider_payload())
+        result["state"] = self._serialize_state(self._query_state(identity["asset_path"]))
+        result["success"] = True
+        result["implementation"] = "local_python"
+        return result
+
+    def submit_asset(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Submit the resolved asset through the current source control provider."""
+        resolved_asset = self._resolver.resolve_from_params(params)
+        identity = resolved_asset.to_identity()
+        asset_path = identity["asset_path"]
+        description = str(params.get("description", "")).strip()
+        if not description:
+            raise AssetCommandError("缺少 'description' 参数")
+
+        save_asset = bool(params.get("save_asset", True))
+        silent = bool(params.get("silent", False))
+        keep_checked_out = bool(params.get("keep_checked_out", False))
+
+        self._ensure_source_control_ready()
+        if save_asset:
+            self._save_loaded_asset_if_needed(resolved_asset)
+
+        try:
+            submitted = bool(
+                unreal.SourceControl.check_in_file(asset_path, description, silent, keep_checked_out)
+            )
+        except Exception as exc:
+            raise AssetCommandError(f"提交资源失败: {asset_path}") from exc
+
+        result = dict(identity)
+        result.update(self._build_provider_payload())
+        result.update(
+            {
+                "success": submitted,
+                "submitted": submitted,
+                "description": description,
+                "save_asset": save_asset,
+                "silent": silent,
+                "keep_checked_out": keep_checked_out,
+                "state": self._serialize_state(self._query_state(asset_path)),
+                "implementation": "local_python",
+            }
+        )
+        if not submitted:
+            result["error"] = self._last_error_or_default(f"提交资源失败: {asset_path}")
+        return result
+
+    def revert_asset(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Revert the resolved asset through the current source control provider."""
+        resolved_asset = self._resolver.resolve_from_params(params)
+        identity = resolved_asset.to_identity()
+        asset_path = identity["asset_path"]
+        silent = bool(params.get("silent", False))
+
+        self._ensure_source_control_ready()
+
+        try:
+            reverted = bool(unreal.SourceControl.revert_file(asset_path, silent))
+        except Exception as exc:
+            raise AssetCommandError(f"还原资源失败: {asset_path}") from exc
+
+        result = dict(identity)
+        result.update(self._build_provider_payload())
+        result.update(
+            {
+                "success": reverted,
+                "reverted": reverted,
+                "silent": silent,
+                "state": self._serialize_state(self._query_state(asset_path)),
+                "implementation": "local_python",
+            }
+        )
+        if not reverted:
+            result["error"] = self._last_error_or_default(f"还原资源失败: {asset_path}")
+        return result
+
+    def _ensure_source_control_ready(self) -> None:
+        if not getattr(unreal, "SourceControl", None):
+            raise AssetCommandError("当前编辑器未暴露 SourceControl Python API")
+        if not bool(unreal.SourceControl.is_enabled()):
+            raise AssetCommandError("当前编辑器未启用源码控制")
+        if not bool(unreal.SourceControl.is_available()):
+            raise AssetCommandError(self._last_error_or_default("当前源码控制 Provider 不可用"))
+
+    def _query_state(self, asset_path: str) -> unreal.SourceControlState:
+        try:
+            return unreal.SourceControl.query_file_state(asset_path)
+        except Exception as exc:
+            raise AssetCommandError(f"查询源码控制状态失败: {asset_path}") from exc
+
+    @staticmethod
+    def _serialize_state(state: unreal.SourceControlState) -> Dict[str, Any]:
+        return {
+            "filename": str(getattr(state, "filename", "")),
+            "is_valid": bool(getattr(state, "is_valid", False)),
+            "is_unknown": bool(getattr(state, "is_unknown", False)),
+            "can_check_in": bool(getattr(state, "can_check_in", False)),
+            "can_check_out": bool(getattr(state, "can_check_out", False)),
+            "is_checked_out": bool(getattr(state, "is_checked_out", False)),
+            "is_current": bool(getattr(state, "is_current", False)),
+            "is_source_controlled": bool(getattr(state, "is_source_controlled", False)),
+            "is_added": bool(getattr(state, "is_added", False)),
+            "is_deleted": bool(getattr(state, "is_deleted", False)),
+            "is_ignored": bool(getattr(state, "is_ignored", False)),
+            "can_edit": bool(getattr(state, "can_edit", False)),
+            "can_delete": bool(getattr(state, "can_delete", False)),
+            "is_modified": bool(getattr(state, "is_modified", False)),
+            "can_add": bool(getattr(state, "can_add", False)),
+            "is_conflicted": bool(getattr(state, "is_conflicted", False)),
+            "can_revert": bool(getattr(state, "can_revert", False)),
+            "is_checked_out_other": bool(getattr(state, "is_checked_out_other", False)),
+            "checked_out_other": str(getattr(state, "checked_out_other", "")),
+            "is_checked_out_in_other_branch": bool(getattr(state, "is_checked_out_in_other_branch", False)),
+            "is_modified_in_other_branch": bool(getattr(state, "is_modified_in_other_branch", False)),
+            "previous_user": str(getattr(state, "previous_user", "")),
+        }
+
+    @staticmethod
+    def _build_provider_payload() -> Dict[str, Any]:
+        provider_name = ""
+        current_provider = getattr(unreal.SourceControl, "current_provider", None)
+        if callable(current_provider):
+            try:
+                provider_name = str(current_provider())
+            except Exception:
+                provider_name = ""
+
+        return {
+            "provider": provider_name,
+            "source_control_enabled": bool(unreal.SourceControl.is_enabled()),
+            "source_control_available": bool(unreal.SourceControl.is_available()),
+            "last_error": SourceControlCommandHelper._last_error_or_default(""),
+        }
+
+    @staticmethod
+    def _last_error_or_default(default_message: str) -> str:
+        last_error_msg = getattr(unreal.SourceControl, "last_error_msg", None)
+        if callable(last_error_msg):
+            try:
+                error_text = str(last_error_msg()).strip()
+                if error_text:
+                    return error_text
+            except Exception:
+                pass
+        return default_message
+
+    @staticmethod
+    def _save_loaded_asset_if_needed(resolved_asset: ResolvedAsset) -> None:
+        asset_object = resolved_asset.asset_data.get_asset()
+        if not asset_object:
+            raise AssetCommandError(f"加载资源失败: {resolved_asset.to_identity()['object_path']}")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset_object, only_if_is_dirty=False):
+            raise AssetCommandError(f"保存资源失败: {resolved_asset.to_identity()['object_path']}")
+
+
 class AssetCommandDispatcher:
     """Dispatch local asset commands."""
+
+    CURVE_TYPE_MAP: Dict[str, Dict[str, str]] = {
+        "curvefloat": {
+            "curve_type": "CurveFloat",
+            "asset_class": "CurveFloat",
+            "factory_class": "CurveFloatFactory",
+        },
+        "float": {
+            "curve_type": "CurveFloat",
+            "asset_class": "CurveFloat",
+            "factory_class": "CurveFloatFactory",
+        },
+        "curvevector": {
+            "curve_type": "CurveVector",
+            "asset_class": "CurveVector",
+            "factory_class": "CurveVectorFactory",
+        },
+        "vector": {
+            "curve_type": "CurveVector",
+            "asset_class": "CurveVector",
+            "factory_class": "CurveVectorFactory",
+        },
+        "curvelinearcolor": {
+            "curve_type": "CurveLinearColor",
+            "asset_class": "CurveLinearColor",
+            "factory_class": "CurveLinearColorFactory",
+        },
+        "linearcolor": {
+            "curve_type": "CurveLinearColor",
+            "asset_class": "CurveLinearColor",
+            "factory_class": "CurveLinearColorFactory",
+        },
+        "linear_color": {
+            "curve_type": "CurveLinearColor",
+            "asset_class": "CurveLinearColor",
+            "factory_class": "CurveLinearColorFactory",
+        },
+        "color": {
+            "curve_type": "CurveLinearColor",
+            "asset_class": "CurveLinearColor",
+            "factory_class": "CurveLinearColorFactory",
+        },
+    }
 
     def __init__(self) -> None:
         self._resolver = AssetResolver()
         self._creation_resolver = AssetCreationResolver()
+        self._data_asset_helper = DataAssetCommandHelper(self._creation_resolver)
+        self._data_table_helper = DataTableCommandHelper(self._resolver)
         self._reimport_executor = ReimportCommandExecutor(self._resolver)
         self._material_executor = MaterialCommandExecutor(self._resolver)
+        self._source_control_helper = SourceControlCommandHelper(self._resolver)
 
     def handle(self, command_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Dispatch a command to its local implementation."""
@@ -1455,7 +2753,20 @@ class AssetCommandDispatcher:
             "search_assets": self._handle_search_assets,
             "get_asset_metadata": self._handle_get_asset_metadata,
             "create_asset": self._handle_create_asset,
+            "create_data_asset": self._handle_create_data_asset,
+            "create_primary_data_asset": self._handle_create_primary_data_asset,
+            "create_curve": self._handle_create_curve,
+            "create_data_table": self._handle_create_data_table,
+            "get_data_table_rows": self._handle_get_data_table_rows,
+            "import_data_table": self._handle_import_data_table,
+            "set_data_table_row": self._handle_set_data_table_row,
+            "export_data_table": self._handle_export_data_table,
+            "remove_data_table_row": self._handle_remove_data_table_row,
             "save_asset": self._handle_save_asset,
+            "checkout_asset": self._handle_checkout_asset,
+            "submit_asset": self._source_control_helper.submit_asset,
+            "revert_asset": self._source_control_helper.revert_asset,
+            "get_source_control_status": self._source_control_helper.get_source_control_status,
             "import_asset": self._handle_import_asset,
             "export_asset": self._handle_export_asset,
             "reimport_asset": self._handle_reimport_asset,
@@ -1481,6 +2792,10 @@ class AssetCommandDispatcher:
             "assign_material_to_actor": self._material_executor.assign_material_to_actor,
             "assign_material_to_component": self._material_executor.assign_material_to_component,
             "replace_material_slot": self._material_executor.replace_material_slot,
+            "add_material_expression": self._material_executor.add_material_expression,
+            "connect_material_expressions": self._material_executor.connect_material_expressions,
+            "layout_material_graph": self._material_executor.layout_material_graph,
+            "compile_material": self._material_executor.compile_material,
         }
         handler = command_handlers.get(command_name)
         if handler is None:
@@ -1605,6 +2920,20 @@ class AssetCommandDispatcher:
         save_asset = bool(params.get("save_asset", True))
         resolved_factory = self._creation_resolver.resolve_creation_request(params)
         applied_factory_options = self._creation_resolver.apply_factory_options(resolved_factory, params)
+        return self._create_asset_with_factory(params, resolved_factory, applied_factory_options)
+
+    def _create_asset_with_factory(
+        self,
+        params: Dict[str, Any],
+        resolved_factory: ResolvedFactory,
+        applied_factory_options: Dict[str, Any],
+        ) -> Dict[str, Any]:
+        asset_name = str(params.get("name", "") or params.get("asset_name", "")).strip()
+        path = str(params.get("path", "/Game")).strip()
+        if not path.startswith("/Game"):
+            raise AssetCommandError("'path' 必须以 /Game 开头")
+        unique_name = bool(params.get("unique_name", False))
+        save_asset = bool(params.get("save_asset", True))
 
         requested_asset_path = f"{path}/{asset_name}"
         final_asset_path, final_asset_name = self._resolve_create_asset_target_path(
@@ -1623,8 +2952,17 @@ class AssetCommandDispatcher:
         if not created_asset:
             raise AssetCommandError(f"创建资产失败: {requested_asset_path}")
 
-        if save_asset and not unreal.EditorAssetLibrary.save_loaded_asset(created_asset, only_if_is_dirty=False):
-            raise AssetCommandError(f"保存新资产失败: {created_asset.get_path_name()}")
+        if save_asset:
+            saved = bool(unreal.EditorAssetLibrary.save_loaded_asset(created_asset, only_if_is_dirty=False))
+            if not saved:
+                saved = bool(
+                    unreal.EditorAssetLibrary.save_asset(
+                        created_asset.get_path_name(),
+                        only_if_is_dirty=False,
+                    )
+                )
+            if not saved:
+                raise AssetCommandError(f"保存新资产失败: {created_asset.get_path_name()}")
 
         result = self._identity_or_fallback(created_asset.get_path_name())
         result.update(
@@ -1643,6 +2981,45 @@ class AssetCommandDispatcher:
             }
         )
         return result
+
+    def _handle_create_curve(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        create_asset_params = dict(params)
+        curve_name = str(create_asset_params.get("curve_name", "")).strip()
+        if curve_name and not str(create_asset_params.get("name", "")).strip():
+            create_asset_params["name"] = curve_name
+
+        curve_config = self._resolve_curve_type_config(create_asset_params)
+        create_asset_params["asset_class"] = curve_config["asset_class"]
+        create_asset_params["factory_class"] = curve_config["factory_class"]
+
+        result = self._handle_create_asset(create_asset_params)
+        result["curve_type"] = curve_config["curve_type"]
+        result["curve_class"] = curve_config["asset_class"]
+        return result
+
+    def _handle_create_data_asset(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_asset_helper.create_data_asset(self, params)
+
+    def _handle_create_primary_data_asset(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_asset_helper.create_primary_data_asset(self, params)
+
+    def _handle_create_data_table(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_asset_helper.create_data_table(self, params)
+
+    def _handle_get_data_table_rows(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_table_helper.get_data_table_rows(params)
+
+    def _handle_import_data_table(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_table_helper.import_data_table(params)
+
+    def _handle_set_data_table_row(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_table_helper.set_data_table_row(params)
+
+    def _handle_export_data_table(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_table_helper.export_data_table(params)
+
+    def _handle_remove_data_table_row(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._data_table_helper.remove_data_table_row(params)
 
     def _handle_save_asset(self, params: Dict[str, Any]) -> Dict[str, Any]:
         resolved_asset = self._resolver.resolve_from_params(params)
@@ -1672,6 +3049,32 @@ class AssetCommandDispatcher:
                 "save_attempted": save_attempted,
             }
         )
+        return result
+
+    def _handle_checkout_asset(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        resolved_asset = self._resolver.resolve_from_params(params)
+        identity = resolved_asset.to_identity()
+        asset_path = identity["asset_path"]
+
+        checkout_asset = getattr(unreal.EditorAssetLibrary, "checkout_asset", None)
+        if not callable(checkout_asset):
+            raise AssetCommandError("EditorAssetLibrary.checkout_asset 不可用")
+
+        try:
+            checked_out = bool(checkout_asset(asset_path))
+        except Exception as exc:
+            raise AssetCommandError(f"签出资源失败: {asset_path}") from exc
+
+        result = dict(identity)
+        result.update(
+            {
+                "success": checked_out,
+                "checked_out": checked_out,
+                "implementation": "local_python",
+            }
+        )
+        if not checked_out:
+            result["error"] = f"签出资源失败: {asset_path}"
         return result
 
     def _handle_import_asset(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -2138,6 +3541,28 @@ class AssetCommandDispatcher:
         asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
         unique_asset_path, unique_asset_name = asset_tools.create_unique_asset_name(requested_asset_path, "")
         return str(unique_asset_path), str(unique_asset_name)
+
+    def _resolve_curve_type_config(self, params: Dict[str, Any]) -> Dict[str, str]:
+        raw_curve_type = str(params.get("curve_type", "CurveFloat")).strip()
+        if not raw_curve_type:
+            raw_curve_type = "CurveFloat"
+
+        normalized_curve_key = raw_curve_type.replace(" ", "").replace("-", "_").casefold()
+        curve_config = self.CURVE_TYPE_MAP.get(normalized_curve_key)
+        if curve_config is None:
+            supported_types = ", ".join(
+                sorted(
+                    {
+                        entry["curve_type"]
+                        for entry in self.CURVE_TYPE_MAP.values()
+                    },
+                    key=str.casefold,
+                )
+            )
+            raise AssetCommandError(
+                f"不支持的 curve_type: {raw_curve_type}，当前支持: {supported_types}"
+            )
+        return dict(curve_config)
 
     def _handle_asset_consolidation_operation(
         self,

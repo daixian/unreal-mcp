@@ -110,7 +110,13 @@ def register_editor_tools(mcp: FastMCP):
         pattern: str,
         world_type: str = "auto",
         include_components: bool = False,
-        detailed_components: bool = True
+        detailed_components: bool = True,
+        class_name: str = "",
+        tag: str = "",
+        tags: List[str] = [],
+        path_contains: str = "",
+        sort_by: str = "name",
+        sort_desc: bool = False,
     ) -> Dict[str, Any]:
         """Find actors by name pattern.
         
@@ -119,6 +125,12 @@ def register_editor_tools(mcp: FastMCP):
             world_type: Target world to query: auto/editor/pie
             include_components: Whether to include each actor's component list
             detailed_components: Whether to include detailed component fields
+            class_name: Optional exact actor class name filter
+            tag: Optional single tag filter
+            tags: Optional tag list; actor must contain all tags
+            path_contains: Optional substring matched against actor path
+            sort_by: Sort field: name/label/path/class/folder_path
+            sort_desc: Whether to sort descending
         """
         from unreal_mcp_server import get_unreal_connection
         
@@ -137,7 +149,13 @@ def register_editor_tools(mcp: FastMCP):
                 "pattern": pattern,
                 "world_type": world_type,
                 "include_components": include_components,
-                "detailed_components": detailed_components
+                "detailed_components": detailed_components,
+                "class_name": class_name,
+                "tag": tag,
+                "tags": tags,
+                "path_contains": path_contains,
+                "sort_by": sort_by,
+                "sort_desc": sort_desc,
             })
             
             if not response:
@@ -153,6 +171,9 @@ def register_editor_tools(mcp: FastMCP):
                 "Unexpected response format while finding actors by name",
             )
             normalized_result["pattern"] = pattern
+            result_payload = response.get("result", response)
+            if "filters" in result_payload:
+                normalized_result["filters"] = result_payload["filters"]
             return normalized_result
             
         except Exception as e:
@@ -261,21 +282,246 @@ def register_editor_tools(mcp: FastMCP):
             }
 
     @mcp.tool()
+    def line_trace(
+        ctx: Context,
+        start: List[float],
+        end: List[float],
+        trace_channel: str = "visibility",
+        world_type: str = "auto",
+        trace_complex: bool = False,
+        actors_to_ignore: List[str] = [],
+        draw_debug_type: str = "none",
+        ignore_self: bool = True,
+        draw_time: float = 5.0
+    ) -> Dict[str, Any]:
+        """
+        Execute a single line trace in the target world.
+
+        Args:
+            start: Trace start location [X, Y, Z]
+            end: Trace end location [X, Y, Z]
+            trace_channel: TraceTypeQuery name, defaults to visibility alias
+            world_type: Target world type (auto/editor/pie)
+            trace_complex: Whether to trace against complex collision
+            actors_to_ignore: Actor names or paths to ignore
+            draw_debug_type: none / for_one_frame / for_duration / persistent
+            ignore_self: Whether to ignore the calling context actor when applicable
+            draw_time: Debug draw duration in seconds
+
+        Returns:
+            Dict containing trace world info and serialized hit result
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "start": start,
+                "end": end,
+                "trace_channel": trace_channel,
+                "world_type": world_type,
+                "trace_complex": trace_complex,
+                "actors_to_ignore": actors_to_ignore,
+                "draw_debug_type": draw_debug_type,
+                "ignore_self": ignore_self,
+                "draw_time": draw_time,
+            }
+            return unreal.send_command("line_trace", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def box_trace(
+        ctx: Context,
+        start: List[float],
+        end: List[float],
+        half_size: List[float],
+        orientation: List[float] = [0.0, 0.0, 0.0],
+        trace_channel: str = "visibility",
+        world_type: str = "auto",
+        trace_complex: bool = False,
+        actors_to_ignore: List[str] = [],
+        draw_debug_type: str = "none",
+        ignore_self: bool = True,
+        draw_time: float = 5.0
+    ) -> Dict[str, Any]:
+        """
+        Execute a single box sweep trace in the target world.
+
+        Args:
+            start: Sweep start location [X, Y, Z]
+            end: Sweep end location [X, Y, Z]
+            half_size: Box half extents [X, Y, Z]
+            orientation: Box rotation [Pitch, Yaw, Roll]
+            trace_channel: TraceTypeQuery name, defaults to visibility alias
+            world_type: Target world type (auto/editor/pie)
+            trace_complex: Whether to trace against complex collision
+            actors_to_ignore: Actor names or paths to ignore
+            draw_debug_type: none / for_one_frame / for_duration / persistent
+            ignore_self: Whether to ignore the calling context actor when applicable
+            draw_time: Debug draw duration in seconds
+
+        Returns:
+            Dict containing trace world info and serialized hit result
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "start": start,
+                "end": end,
+                "half_size": half_size,
+                "orientation": orientation,
+                "trace_channel": trace_channel,
+                "world_type": world_type,
+                "trace_complex": trace_complex,
+                "actors_to_ignore": actors_to_ignore,
+                "draw_debug_type": draw_debug_type,
+                "ignore_self": ignore_self,
+                "draw_time": draw_time,
+            }
+            return unreal.send_command("box_trace", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def sphere_trace(
+        ctx: Context,
+        start: List[float],
+        end: List[float],
+        radius: float,
+        trace_channel: str = "visibility",
+        world_type: str = "auto",
+        trace_complex: bool = False,
+        actors_to_ignore: List[str] = [],
+        draw_debug_type: str = "none",
+        ignore_self: bool = True,
+        draw_time: float = 5.0
+    ) -> Dict[str, Any]:
+        """
+        Execute a single sphere sweep trace in the target world.
+
+        Args:
+            start: Sweep start location [X, Y, Z]
+            end: Sweep end location [X, Y, Z]
+            radius: Sphere radius
+            trace_channel: TraceTypeQuery name, defaults to visibility alias
+            world_type: Target world type (auto/editor/pie)
+            trace_complex: Whether to trace against complex collision
+            actors_to_ignore: Actor names or paths to ignore
+            draw_debug_type: none / for_one_frame / for_duration / persistent
+            ignore_self: Whether to ignore the calling context actor when applicable
+            draw_time: Debug draw duration in seconds
+
+        Returns:
+            Dict containing trace world info and serialized hit result
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "start": start,
+                "end": end,
+                "radius": radius,
+                "trace_channel": trace_channel,
+                "world_type": world_type,
+                "trace_complex": trace_complex,
+                "actors_to_ignore": actors_to_ignore,
+                "draw_debug_type": draw_debug_type,
+                "ignore_self": ignore_self,
+                "draw_time": draw_time,
+            }
+            return unreal.send_command("sphere_trace", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_hit_result_under_cursor(
+        ctx: Context,
+        player_index: int = 0,
+        trace_channel: str = "visibility",
+        world_type: str = "auto",
+        trace_complex: bool = False,
+        actors_to_ignore: List[str] = [],
+        draw_debug_type: str = "none",
+        ignore_self: bool = True,
+        draw_time: float = 5.0,
+        trace_distance: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Get the current mouse cursor hit result in PIE/VR Preview.
+
+        Args:
+            player_index: Local player index, defaults to 0
+            trace_channel: TraceTypeQuery name, defaults to visibility alias
+            world_type: Target world type. Currently only PIE/VR Preview is supported
+            trace_complex: Whether to trace against complex collision
+            actors_to_ignore: Actor names or paths to ignore
+            draw_debug_type: none / for_one_frame / for_duration / persistent
+            ignore_self: Whether to ignore the owning controller/pawn when applicable
+            draw_time: Debug draw duration in seconds
+            trace_distance: Optional override for cursor trace distance
+
+        Returns:
+            Dict containing mouse position, trace ray and serialized hit result
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "player_index": int(player_index),
+                "trace_channel": trace_channel,
+                "world_type": world_type,
+                "trace_complex": trace_complex,
+                "actors_to_ignore": actors_to_ignore,
+                "draw_debug_type": draw_debug_type,
+                "ignore_self": ignore_self,
+                "draw_time": draw_time,
+            }
+            if trace_distance is not None:
+                params["trace_distance"] = float(trace_distance)
+            return unreal.send_command("get_hit_result_under_cursor", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
     def spawn_actor(
         ctx: Context,
         name: str,
-        type: str,
+        type: str = "",
         location: List[float] = [0.0, 0.0, 0.0],
-        rotation: List[float] = [0.0, 0.0, 0.0]
+        rotation: List[float] = [0.0, 0.0, 0.0],
+        scale: List[float] = [1.0, 1.0, 1.0],
+        class_path: str = "",
+        world_type: str = "editor",
+        template_actor: str = "",
     ) -> Dict[str, Any]:
         """Create a new actor in the current level.
         
         Args:
             ctx: The MCP context
             name: The name to give the new actor (must be unique)
-            type: The type of actor to create (e.g. StaticMeshActor, PointLight)
+            type: Optional native actor type name (e.g. StaticMeshActor, PointLight)
             location: The [x, y, z] world location to spawn at
             rotation: The [pitch, yaw, roll] rotation in degrees
+            scale: The [x, y, z] scale to apply after spawning
+            class_path: Optional native class path or Blueprint generated class path
+            world_type: Target world type. spawn_actor currently supports editor only
+            template_actor: Optional source actor name/label/path used as duplication template
             
         Returns:
             Dict containing the created actor's properties
@@ -291,13 +537,23 @@ def register_editor_tools(mcp: FastMCP):
             # Ensure all parameters are properly formatted
             params = {
                 "name": name,
-                "type": type.strip(),
                 "location": location,
-                "rotation": rotation
+                "rotation": rotation,
+                "scale": scale,
+                "world_type": world_type,
             }
+            if type.strip():
+                params["type"] = type.strip()
+            if class_path.strip():
+                params["class_path"] = class_path.strip()
+            if template_actor.strip():
+                params["template_actor"] = template_actor.strip()
+
+            if "type" not in params and "class_path" not in params and "template_actor" not in params:
+                return {"success": False, "message": "type、class_path、template_actor 至少需要提供一个"}
             
-            # Validate location and rotation formats
-            for param_name in ["location", "rotation"]:
+            # Validate transform formats
+            for param_name in ["location", "rotation", "scale"]:
                 param_value = params[param_name]
                 if not isinstance(param_value, list) or len(param_value) != 3:
                     logger.error(f"Invalid {param_name} format: {param_value}. Must be a list of 3 float values.")
@@ -305,7 +561,7 @@ def register_editor_tools(mcp: FastMCP):
                 # Ensure all values are float
                 params[param_name] = [float(val) for val in param_value]
             
-            logger.info(f"Creating actor '{name}' of type '{type}' with params: {params}")
+            logger.info(f"Creating actor '{name}' with params: {params}")
             response = unreal.send_command("spawn_actor", params)
             
             if not response:
@@ -1309,8 +1565,23 @@ def register_editor_tools(mcp: FastMCP):
             return {"status": "error", "message": str(e)}
 
     @mcp.tool()
-    def take_screenshot(ctx: Context, filepath: str) -> Dict[str, Any]:
-        """Capture a screenshot of the active viewport."""
+    def take_screenshot(
+        ctx: Context,
+        filepath: str,
+        resolution: Optional[List[int]] = None,
+        show_ui: bool = False,
+        transparent_background: bool = False,
+        viewport_index: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Capture a screenshot of a level viewport.
+
+        Args:
+            filepath: Output file path. `.png` is appended automatically when omitted.
+            resolution: Optional [Width, Height]. Only supported when `show_ui=False`.
+            show_ui: Whether to include editor UI. This currently only works on the active viewport.
+            transparent_background: Whether to force the output PNG alpha to transparent. Only supported when `show_ui=False`.
+            viewport_index: Optional level viewport index. When omitted, Unreal resolves the active viewport first.
+        """
         from unreal_mcp_server import get_unreal_connection
 
         try:
@@ -1319,9 +1590,19 @@ def register_editor_tools(mcp: FastMCP):
                 logger.error("Failed to connect to Unreal Engine")
                 return {"success": False, "message": "Failed to connect to Unreal Engine"}
 
-            response = unreal.send_command("take_screenshot", {
-                "filepath": filepath
-            })
+            params: Dict[str, Any] = {
+                "filepath": filepath,
+                "show_ui": show_ui,
+                "transparent_background": transparent_background,
+            }
+            if resolution is not None:
+                if not isinstance(resolution, list) or len(resolution) != 2:
+                    return {"success": False, "message": "resolution must be [Width, Height]"}
+                params["resolution"] = [int(value) for value in resolution]
+            if viewport_index is not None:
+                params["viewport_index"] = int(viewport_index)
+
+            response = unreal.send_command("take_screenshot", params)
             return response or {}
 
         except Exception as e:
@@ -1717,6 +1998,83 @@ def register_editor_tools(mcp: FastMCP):
             return {"success": False, "message": str(e)}
 
     @mcp.tool()
+    def add_component_to_actor(
+        ctx: Context,
+        component_class: str,
+        name: str = "",
+        actor_path: str = "",
+        component_name: str = "",
+        parent_component_name: str = "",
+        socket_name: str = "",
+        location: Optional[List[float]] = None,
+        rotation: Optional[List[float]] = None,
+        scale: Optional[List[float]] = None,
+        component_properties: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Add a component instance to an actor in the editor world."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "component_class": component_class,
+                "world_type": "editor",
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+            if component_name:
+                params["component_name"] = component_name
+            if parent_component_name:
+                params["parent_component_name"] = parent_component_name
+            if socket_name:
+                params["socket_name"] = socket_name
+            if location is not None:
+                params["location"] = location
+            if rotation is not None:
+                params["rotation"] = rotation
+            if scale is not None:
+                params["scale"] = scale
+            if component_properties is not None:
+                params["component_properties"] = component_properties
+
+            return unreal.send_command("add_component_to_actor", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def remove_component_from_actor(
+        ctx: Context,
+        component_name: str,
+        name: str = "",
+        actor_path: str = "",
+    ) -> Dict[str, Any]:
+        """Remove a component instance from an actor in the editor world."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "component_name": component_name,
+                "world_type": "editor",
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+
+            return unreal.send_command("remove_component_from_actor", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
     def set_actors_transform(
         ctx: Context,
         actor_names: List[str],
@@ -1917,6 +2275,136 @@ def register_editor_tools(mcp: FastMCP):
                 return {"success": False, "message": "Failed to connect to Unreal Engine"}
 
             return unreal.send_command("get_viewport_camera", {}) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def get_data_layers(
+        ctx: Context,
+        world_type: str = "editor",
+    ) -> Dict[str, Any]:
+        """Get Data Layer instances in the current editor world."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            return unreal.send_command("get_data_layers", {
+                "world_type": world_type,
+            }) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def create_data_layer(
+        ctx: Context,
+        data_layer_name: str,
+        destination_path: str = "/Game",
+        parent_data_layer: str = "",
+        world_data_layers_path: str = "",
+        world_type: str = "editor",
+    ) -> Dict[str, Any]:
+        """Create a Data Layer asset and instance in the current editor world."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "data_layer_name": data_layer_name,
+                "destination_path": destination_path,
+                "world_type": world_type,
+            }
+            if parent_data_layer:
+                params["parent_data_layer"] = parent_data_layer
+            if world_data_layers_path:
+                params["world_data_layers_path"] = world_data_layers_path
+
+            return unreal.send_command("create_data_layer", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def set_actor_data_layers(
+        ctx: Context,
+        data_layers: List[str],
+        name: str = "",
+        actor_path: str = "",
+        world_type: str = "editor",
+    ) -> Dict[str, Any]:
+        """Set Data Layer assignments for an actor in the editor world."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "data_layers": data_layers,
+                "world_type": world_type,
+            }
+            if name:
+                params["name"] = name
+            if actor_path:
+                params["actor_path"] = actor_path
+
+            return unreal.send_command("set_actor_data_layers", params) or {}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @mcp.tool()
+    def set_data_layer_state(
+        ctx: Context,
+        data_layer: str = "",
+        name: str = "",
+        path: str = "",
+        short_name: str = "",
+        full_name: str = "",
+        asset_name: str = "",
+        asset_path: str = "",
+        is_visible: bool | None = None,
+        is_loaded_in_editor: bool | None = None,
+        initial_runtime_state: str = "",
+        world_type: str = "editor",
+    ) -> Dict[str, Any]:
+        """Set Data Layer visibility/load/runtime state in the editor world."""
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params: Dict[str, Any] = {
+                "world_type": world_type,
+            }
+            if data_layer:
+                params["data_layer"] = data_layer
+            if name:
+                params["name"] = name
+            if path:
+                params["path"] = path
+            if short_name:
+                params["short_name"] = short_name
+            if full_name:
+                params["full_name"] = full_name
+            if asset_name:
+                params["asset_name"] = asset_name
+            if asset_path:
+                params["asset_path"] = asset_path
+            if is_visible is not None:
+                params["is_visible"] = is_visible
+            if is_loaded_in_editor is not None:
+                params["is_loaded_in_editor"] = is_loaded_in_editor
+            if initial_runtime_state:
+                params["initial_runtime_state"] = initial_runtime_state
+
+            return unreal.send_command("set_data_layer_state", params) or {}
         except Exception as e:
             return {"success": False, "message": str(e)}
 

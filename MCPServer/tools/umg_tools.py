@@ -240,7 +240,9 @@ def register_umg_tools(mcp: FastMCP):
     def add_widget_to_viewport(
         ctx: Context,
         widget_name: str,
-        z_order: int = 0
+        z_order: int = 0,
+        instance_name: str = "",
+        player_index: int | None = None,
     ) -> Dict[str, Any]:
         """
         Add a Widget Blueprint instance to the viewport.
@@ -248,6 +250,8 @@ def register_umg_tools(mcp: FastMCP):
         Args:
             widget_name: Name of the Widget Blueprint to add
             z_order: Z-order for the widget (higher numbers appear on top)
+            instance_name: Optional explicit object name for the created widget instance
+            player_index: Optional local player index; when set, the widget is added to that player's screen
             
         Returns:
             Dict containing success status and widget instance information
@@ -262,8 +266,11 @@ def register_umg_tools(mcp: FastMCP):
             
             params = {
                 "blueprint_name": widget_name,
-                "z_order": z_order
+                "z_order": z_order,
+                "instance_name": instance_name,
             }
+            if player_index is not None:
+                params["player_index"] = player_index
             
             logger.info(f"Adding widget to viewport with params: {params}")
             response = unreal.send_command("add_widget_to_viewport", params)
@@ -277,6 +284,53 @@ def register_umg_tools(mcp: FastMCP):
             
         except Exception as e:
             error_msg = f"Error adding widget to viewport: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def remove_widget_from_viewport(
+        ctx: Context,
+        instance_path: str = "",
+        instance_name: str = "",
+        widget_name: str = "",
+    ) -> Dict[str, Any]:
+        """
+        Remove a previously created Widget instance from the viewport.
+
+        Args:
+            instance_path: Preferred runtime object path returned by add_widget_to_viewport
+            instance_name: Optional runtime object name; only use when instance_path is unavailable
+            widget_name: Optional Widget Blueprint name used to narrow matching when using instance_name
+
+        Returns:
+            Dict containing success status and removed widget instance information
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "instance_path": instance_path,
+                "instance_name": instance_name,
+                "blueprint_name": widget_name,
+            }
+
+            logger.info(f"Removing widget from viewport with params: {params}")
+            response = unreal.send_command("remove_widget_from_viewport", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Remove widget from viewport response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error removing widget from viewport: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 
@@ -327,6 +381,56 @@ def register_umg_tools(mcp: FastMCP):
             
         except Exception as e:
             error_msg = f"Error setting text block binding: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def bind_widget_property(
+        ctx: Context,
+        widget_name: str,
+        child_widget_name: str,
+        binding_property: str,
+        binding_type: str = "Text"
+    ) -> Dict[str, Any]:
+        """
+        Bind a supported widget property to a Blueprint member variable.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            child_widget_name: Name of the child widget to bind
+            binding_property: Name of the Blueprint member variable used as binding source
+            binding_type: Supported property type alias (Text, Visibility, ColorAndOpacity, ShadowColorAndOpacity, ToolTipText, IsEnabled)
+
+        Returns:
+            Dict containing success status and binding information
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": child_widget_name,
+                "binding_name": binding_property,
+                "binding_type": binding_type
+            }
+
+            logger.info(f"Binding widget property with params: {params}")
+            response = unreal.send_command("bind_widget_property", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Bind widget property response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error binding widget property: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 
@@ -1133,6 +1237,590 @@ def register_umg_tools(mcp: FastMCP):
 
         except Exception as e:
             error_msg = f"Error adding Multi-Line Text to widget: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def add_named_slot_to_widget(
+        ctx: Context,
+        widget_name: str,
+        named_slot_name: str,
+        position: List[float] = [0.0, 0.0],
+        size: List[float] = [200.0, 100.0]
+    ) -> Dict[str, Any]:
+        """
+        Add a Named Slot widget to a UMG Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            named_slot_name: Name to give the new Named Slot
+            position: [X, Y] position in the root canvas
+            size: [Width, Height] of the named slot
+
+        Returns:
+            Dict containing success status and widget properties
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": named_slot_name,
+                "position": position,
+                "size": size
+            }
+
+            logger.info(f"Adding Named Slot to widget with params: {params}")
+            response = unreal.send_command("add_named_slot_to_widget", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Add Named Slot response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error adding Named Slot to widget: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def add_list_view_to_widget(
+        ctx: Context,
+        widget_name: str,
+        list_view_name: str,
+        position: List[float] = [0.0, 0.0],
+        size: List[float] = [300.0, 200.0]
+    ) -> Dict[str, Any]:
+        """
+        Add a List View widget to a UMG Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            list_view_name: Name to give the new List View
+            position: [X, Y] position in the root canvas
+            size: [Width, Height] of the list view
+
+        Returns:
+            Dict containing success status and widget properties
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": list_view_name,
+                "position": position,
+                "size": size
+            }
+
+            logger.info(f"Adding List View to widget with params: {params}")
+            response = unreal.send_command("add_list_view_to_widget", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Add List View response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error adding List View to widget: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def add_tile_view_to_widget(
+        ctx: Context,
+        widget_name: str,
+        tile_view_name: str,
+        position: List[float] = [0.0, 0.0],
+        size: List[float] = [300.0, 200.0]
+    ) -> Dict[str, Any]:
+        """
+        Add a Tile View widget to a UMG Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            tile_view_name: Name to give the new Tile View
+            position: [X, Y] position in the root canvas
+            size: [Width, Height] of the tile view
+
+        Returns:
+            Dict containing success status and widget properties
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": tile_view_name,
+                "position": position,
+                "size": size
+            }
+
+            logger.info(f"Adding Tile View to widget with params: {params}")
+            response = unreal.send_command("add_tile_view_to_widget", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Add Tile View response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error adding Tile View to widget: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def add_tree_view_to_widget(
+        ctx: Context,
+        widget_name: str,
+        tree_view_name: str,
+        position: List[float] = [0.0, 0.0],
+        size: List[float] = [300.0, 200.0]
+    ) -> Dict[str, Any]:
+        """
+        Add a Tree View widget to a UMG Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            tree_view_name: Name to give the new Tree View
+            position: [X, Y] position in the root canvas
+            size: [Width, Height] of the tree view
+
+        Returns:
+            Dict containing success status and widget properties
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": tree_view_name,
+                "position": position,
+                "size": size
+            }
+
+            logger.info(f"Adding Tree View to widget with params: {params}")
+            response = unreal.send_command("add_tree_view_to_widget", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Add Tree View response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error adding Tree View to widget: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def remove_widget_from_blueprint(
+        ctx: Context,
+        widget_name: str,
+        child_widget_name: str
+    ) -> Dict[str, Any]:
+        """
+        Remove a source widget from a UMG Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            child_widget_name: Name of the child widget to remove
+
+        Returns:
+            Dict containing success status and removed widget info
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": child_widget_name
+            }
+
+            logger.info(f"Removing widget from blueprint with params: {params}")
+            response = unreal.send_command("remove_widget_from_blueprint", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Remove widget from blueprint response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error removing widget from blueprint: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_widget_slot_layout(
+        ctx: Context,
+        widget_name: str,
+        child_widget_name: str,
+        position: List[float] = [0.0, 0.0],
+        size: List[float] = [100.0, 100.0],
+        alignment: List[float] = [0.0, 0.0],
+        anchors: List[float] = [0.0, 0.0, 0.0, 0.0],
+        offsets: List[float] = [],
+        auto_size: bool = False,
+        z_order: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Update CanvasPanelSlot layout properties for a widget inside a Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            child_widget_name: Name of the child widget to update
+            position: [X, Y] position in the canvas
+            size: [Width, Height] size in the canvas
+            alignment: [X, Y] alignment pivot
+            anchors: [MinX, MinY, MaxX, MaxY] anchors
+            offsets: [Left, Top, Right, Bottom] slot offsets
+            auto_size: Whether to size to desired content
+            z_order: Canvas slot Z-order
+
+        Returns:
+            Dict containing success status and updated layout info
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": child_widget_name,
+                "position": position,
+                "size": size,
+                "alignment": alignment,
+                "anchors": anchors,
+                "auto_size": auto_size,
+                "z_order": z_order
+            }
+            if offsets:
+                params["offsets"] = offsets
+
+            logger.info(f"Setting widget slot layout with params: {params}")
+            response = unreal.send_command("set_widget_slot_layout", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Set widget slot layout response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error setting widget slot layout: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_widget_visibility(
+        ctx: Context,
+        widget_name: str,
+        child_widget_name: str,
+        visibility: str
+    ) -> Dict[str, Any]:
+        """
+        Set the visibility of a widget inside a Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            child_widget_name: Name of the child widget to update
+            visibility: Visibility enum name, such as Visible, Hidden, Collapsed, HitTestInvisible, SelfHitTestInvisible
+
+        Returns:
+            Dict containing success status and updated visibility
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": child_widget_name,
+                "visibility": visibility
+            }
+
+            logger.info(f"Setting widget visibility with params: {params}")
+            response = unreal.send_command("set_widget_visibility", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Set widget visibility response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error setting widget visibility: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_widget_style(
+        ctx: Context,
+        widget_name: str,
+        child_widget_name: str,
+        style: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Set stable style fields on a widget inside a Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            child_widget_name: Name of the child widget to update
+            style: Style object. Currently supports stable fields on Button, ProgressBar, CheckBox, Border, and Image.
+
+        Returns:
+            Dict containing success status and updated style fields
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": child_widget_name,
+                "style": style,
+            }
+
+            logger.info(f"Setting widget style with params: {params}")
+            response = unreal.send_command("set_widget_style", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Set widget style response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error setting widget style: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def set_widget_brush(
+        ctx: Context,
+        widget_name: str,
+        child_widget_name: str,
+        brush_asset_path: str = "",
+        texture_asset_path: str = "",
+        material_asset_path: str = "",
+        tint_color: List[float] = [],
+        image_size: List[float] = [],
+        match_size: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Set the brush resource or tint of a widget inside a Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            child_widget_name: Name of the child widget to update
+            brush_asset_path: Optional SlateBrushAsset path
+            texture_asset_path: Optional texture asset path
+            material_asset_path: Optional material asset path
+            tint_color: Optional [R, G, B, A] tint color
+            image_size: Optional [Width, Height], currently only for Image
+            match_size: Whether texture brush should adopt source texture size when supported
+
+        Returns:
+            Dict containing success status and updated brush info
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "widget_name": child_widget_name,
+                "match_size": match_size,
+            }
+            if brush_asset_path:
+                params["brush_asset_path"] = brush_asset_path
+            if texture_asset_path:
+                params["texture_asset_path"] = texture_asset_path
+            if material_asset_path:
+                params["material_asset_path"] = material_asset_path
+            if tint_color:
+                params["tint_color"] = tint_color
+            if image_size:
+                params["image_size"] = image_size
+
+            logger.info(f"Setting widget brush with params: {params}")
+            response = unreal.send_command("set_widget_brush", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Set widget brush response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error setting widget brush: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def create_widget_animation(
+        ctx: Context,
+        widget_name: str,
+        animation_name: str = "",
+        start_time: float = 0.0,
+        end_time: float = 1.0,
+        display_rate: int = 20
+    ) -> Dict[str, Any]:
+        """
+        Create a Widget animation inside a Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            animation_name: Optional animation name; auto-generates a unique name when empty
+            start_time: Animation start time in seconds
+            end_time: Animation end time in seconds
+            display_rate: Display frame rate used by the animation timeline
+
+        Returns:
+            Dict containing success status and animation metadata
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "start_time": start_time,
+                "end_time": end_time,
+                "display_rate": display_rate,
+            }
+            if animation_name:
+                params["animation_name"] = animation_name
+
+            logger.info(f"Creating widget animation with params: {params}")
+            response = unreal.send_command("create_widget_animation", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Create widget animation response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error creating widget animation: {e}"
+            logger.error(error_msg)
+            return {"success": False, "message": error_msg}
+
+    @mcp.tool()
+    def add_widget_animation_keyframe(
+        ctx: Context,
+        widget_name: str,
+        animation_name: str,
+        target_widget_name: str,
+        property_name: str,
+        time: float,
+        value: Any,
+        interpolation: str = "cubic"
+    ) -> Dict[str, Any]:
+        """
+        Add a keyframe to a Widget animation track inside a Widget Blueprint.
+
+        Args:
+            widget_name: Name of the target Widget Blueprint
+            animation_name: Name of the target Widget animation
+            target_widget_name: Name of the widget to animate
+            property_name: Animated property name. Supports render_opacity and common render_transform channels
+            time: Keyframe time in seconds
+            value: Keyframe value. Number for scalar channels, [X, Y] for 2D channels
+            interpolation: Key interpolation mode: cubic, linear, constant
+
+        Returns:
+            Dict containing success status and written channel information
+        """
+        from unreal_mcp_server import get_unreal_connection
+
+        try:
+            unreal = get_unreal_connection()
+            if not unreal:
+                logger.error("Failed to connect to Unreal Engine")
+                return {"success": False, "message": "Failed to connect to Unreal Engine"}
+
+            params = {
+                "blueprint_name": widget_name,
+                "animation_name": animation_name,
+                "target_widget_name": target_widget_name,
+                "property_name": property_name,
+                "time": time,
+                "value": value,
+                "interpolation": interpolation,
+            }
+
+            logger.info(f"Adding widget animation keyframe with params: {params}")
+            response = unreal.send_command("add_widget_animation_keyframe", params)
+
+            if not response:
+                logger.error("No response from Unreal Engine")
+                return {"success": False, "message": "No response from Unreal Engine"}
+
+            logger.info(f"Add widget animation keyframe response: {response}")
+            return response
+
+        except Exception as e:
+            error_msg = f"Error adding widget animation keyframe: {e}"
             logger.error(error_msg)
             return {"success": False, "message": error_msg}
 

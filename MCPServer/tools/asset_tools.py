@@ -185,6 +185,211 @@ def register_asset_tools(mcp: FastMCP):
         return _send_asset_command("create_asset", params)
 
     @mcp.tool()
+    def create_curve(
+        ctx: Context,
+        curve_name: str,
+        path: str = "/Game",
+        curve_type: str = "CurveFloat",
+        unique_name: bool = False,
+        save_asset: bool = True
+    ) -> Dict[str, Any]:
+        """Create a curve asset such as CurveFloat, CurveVector, or CurveLinearColor."""
+        del ctx
+
+        params: Dict[str, Any] = {
+            "curve_name": curve_name,
+            "name": curve_name,
+            "path": path,
+            "curve_type": curve_type,
+            "unique_name": unique_name,
+            "save_asset": save_asset,
+        }
+        return _send_asset_command("create_curve", params)
+
+    @mcp.tool()
+    def create_data_asset(
+        ctx: Context,
+        data_asset_name: str,
+        data_asset_class: str,
+        path: str = "/Game",
+        unique_name: bool = False,
+        save_asset: bool = True
+    ) -> Dict[str, Any]:
+        """Create a DataAsset instance from DataAsset or one of its subclasses."""
+        del ctx
+
+        params: Dict[str, Any] = {
+            "data_asset_name": data_asset_name,
+            "name": data_asset_name,
+            "data_asset_class": data_asset_class,
+            "path": path,
+            "unique_name": unique_name,
+            "save_asset": save_asset,
+        }
+        return _send_asset_command("create_data_asset", params)
+
+    @mcp.tool()
+    def create_primary_data_asset(
+        ctx: Context,
+        data_asset_name: str,
+        data_asset_class: str,
+        path: str = "/Game",
+        unique_name: bool = False,
+        save_asset: bool = True
+    ) -> Dict[str, Any]:
+        """Create a PrimaryDataAsset instance from PrimaryDataAsset or one of its subclasses."""
+        del ctx
+
+        params: Dict[str, Any] = {
+            "primary_data_asset_name": data_asset_name,
+            "name": data_asset_name,
+            "data_asset_class": data_asset_class,
+            "path": path,
+            "unique_name": unique_name,
+            "save_asset": save_asset,
+        }
+        return _send_asset_command("create_primary_data_asset", params)
+
+    @mcp.tool()
+    def create_data_table(
+        ctx: Context,
+        table_name: str,
+        row_struct: str,
+        path: str = "/Game",
+        unique_name: bool = False,
+        save_asset: bool = True
+    ) -> Dict[str, Any]:
+        """Create a DataTable asset with the given row struct."""
+        del ctx
+
+        params: Dict[str, Any] = {
+            "table_name": table_name,
+            "name": table_name,
+            "row_struct": row_struct,
+            "path": path,
+            "unique_name": unique_name,
+            "save_asset": save_asset,
+        }
+        return _send_asset_command("create_data_table", params)
+
+    @mcp.tool()
+    def get_data_table_rows(
+        ctx: Context,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        row_name: str = ""
+    ) -> Dict[str, Any]:
+        """Read one or all rows from a DataTable asset."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        if row_name:
+            params["row_name"] = row_name
+        return _send_asset_command("get_data_table_rows", params)
+
+    @mcp.tool()
+    def import_data_table(
+        ctx: Context,
+        source_file: str,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        format: str = "auto",
+        save_asset: bool = True
+    ) -> Dict[str, Any]:
+        """Import CSV or JSON data into an existing DataTable asset."""
+        del ctx
+
+        if not source_file.strip():
+            return {"success": False, "message": "source_file is required"}
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        params["source_file"] = source_file
+        params["format"] = format
+        params["save_asset"] = save_asset
+        return _send_asset_command("import_data_table", params)
+
+    @mcp.tool()
+    def set_data_table_row(
+        ctx: Context,
+        row_name: str,
+        row_data: Dict[str, Any],
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        save_asset: bool = True
+    ) -> Dict[str, Any]:
+        """Create or replace a single DataTable row using exported JSON field names."""
+        del ctx
+
+        if not row_name.strip():
+            return {"success": False, "message": "row_name is required"}
+        if not isinstance(row_data, dict):
+            return {"success": False, "message": "row_data must be an object"}
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        params["row_name"] = row_name
+        params["row_data"] = row_data
+        params["save_asset"] = save_asset
+        return _send_asset_command("set_data_table_row", params)
+
+    @mcp.tool()
+    def export_data_table(
+        ctx: Context,
+        export_file: str,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        format: str = "auto"
+    ) -> Dict[str, Any]:
+        """Export an existing DataTable asset to a CSV or JSON file."""
+        del ctx
+
+        if not export_file.strip():
+            return {"success": False, "message": "export_file is required"}
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        params["export_file"] = export_file
+        params["format"] = format
+        return _send_asset_command("export_data_table", params)
+
+    @mcp.tool()
+    def remove_data_table_row(
+        ctx: Context,
+        row_name: str,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        save_asset: bool = True
+    ) -> Dict[str, Any]:
+        """Remove a single row from a DataTable asset."""
+        del ctx
+
+        if not row_name.strip():
+            return {"success": False, "message": "row_name is required"}
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        params["row_name"] = row_name
+        params["save_asset"] = save_asset
+        return _send_asset_command("remove_data_table_row", params)
+
+    @mcp.tool()
     def save_asset(
         ctx: Context,
         asset_path: str = "",
@@ -201,6 +406,83 @@ def register_asset_tools(mcp: FastMCP):
             return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
         params["only_if_dirty"] = only_if_dirty
         return _send_asset_command("save_asset", params)
+
+    @mcp.tool()
+    def checkout_asset(
+        ctx: Context,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = ""
+    ) -> Dict[str, Any]:
+        """Checkout a loaded asset resolved by path, object path, or asset name."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        return _send_asset_command("checkout_asset", params)
+
+    @mcp.tool()
+    def submit_asset(
+        ctx: Context,
+        description: str,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        save_asset: bool = True,
+        silent: bool = False,
+        keep_checked_out: bool = False
+    ) -> Dict[str, Any]:
+        """Submit a loaded asset through the current source control provider."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        if not description.strip():
+            return {"success": False, "message": "description is required"}
+
+        params["description"] = description
+        params["save_asset"] = save_asset
+        params["silent"] = silent
+        params["keep_checked_out"] = keep_checked_out
+        return _send_asset_command("submit_asset", params)
+
+    @mcp.tool()
+    def revert_asset(
+        ctx: Context,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = "",
+        silent: bool = False
+    ) -> Dict[str, Any]:
+        """Revert a loaded asset through the current source control provider."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        params["silent"] = silent
+        return _send_asset_command("revert_asset", params)
+
+    @mcp.tool()
+    def get_source_control_status(
+        ctx: Context,
+        asset_path: str = "",
+        object_path: str = "",
+        asset_name: str = "",
+        name: str = ""
+    ) -> Dict[str, Any]:
+        """Query source control state for a loaded asset."""
+        del ctx
+
+        params = _build_asset_lookup_params(asset_path, object_path, asset_name, name)
+        if not params:
+            return {"success": False, "message": "One of asset_path, object_path, asset_name or name is required"}
+        return _send_asset_command("get_source_control_status", params)
 
     @mcp.tool()
     def import_asset(

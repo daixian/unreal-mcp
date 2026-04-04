@@ -60,6 +60,7 @@ SLOW_RESPONSE_COMMANDS = {
     "get_asset_metadata",
     "get_asset_dependencies",
     "get_asset_referencers",
+    "create_data_table",
 }
 
 class UnrealConnection:
@@ -231,7 +232,8 @@ class UnrealConnection:
             "set_blueprint_pin_default",
             "delete_blueprint_node",
             "connect_blueprint_nodes",
-            "compile_blueprint"
+            "compile_blueprint",
+            "compile_blueprints"
         }:
             return BLUEPRINT_COMMAND_TIMEOUT_SECONDS
         return DEFAULT_SOCKET_TIMEOUT_SECONDS
@@ -430,13 +432,15 @@ def info():
       Bind events like OnClicked to functions
     - `add_widget_to_viewport(widget_name, z_order=0)`
       Add widget instance to game viewport during PIE
+    - `remove_widget_from_viewport(instance_path="", instance_name="", widget_name="")`
+      Remove a previously created widget instance from the game viewport during PIE
     - `set_text_block_binding(widget_name, text_block_name, binding_property, binding_type="Text")`
       Set up dynamic property binding for text blocks, binding_type supports Text/Visibility/ColorAndOpacity/ShadowColorAndOpacity/ToolTipText/IsEnabled
 
     ## Editor Tools
     ### Viewport and Screenshots
     - `focus_viewport(target=None, location=None, distance=1000.0, orientation=None)` - Focus the active editor viewport on an actor or location
-    - `take_screenshot(filepath)` - Capture a screenshot of the active viewport and save it to `filepath`
+    - `take_screenshot(filepath, resolution=None, show_ui=False, transparent_background=False, viewport_index=None)` - Capture a level viewport screenshot; `show_ui=True` currently only works on the active viewport and returns a queued request
     - `start_pie(simulate=False)` - Start Play-In-Editor session
     - `start_vr_preview()` - Start a VR Preview session
     - `stop_pie()` - Stop current Play-In-Editor session
@@ -469,6 +473,7 @@ def info():
     - `set_blueprint_property(blueprint_name, property_name, property_value)` - Set properties
     - `set_pawn_properties(blueprint_name)` - Configure Pawn settings
     - `set_game_mode_default_pawn(game_mode_name, pawn_blueprint_name)` - Set the default pawn class for a GameMode Blueprint
+    - `add_blueprint_macro(blueprint_name, macro_name)` - Add a macro graph
     - `spawn_blueprint_actor(blueprint_name, actor_name)` - Spawn Blueprint actors
 
     ## Asset Tools
@@ -478,6 +483,7 @@ def info():
     - `get_asset_referencers(asset_path="", object_path="", asset_name="", name="")` - Query detailed referencers
     - `get_asset_summary(asset_path="", object_path="", asset_name="", name="")` - Load asset and summarize by type; WidgetBlueprint summaries include detailed widget layout data when available
     - `create_asset(name, asset_class, path="/Game", factory_class="", parent_class="", unique_name=False, save_asset=True)` - Create a generic asset with a UE factory; when `factory_class` is omitted, built-in defaults cover common asset classes such as Curve/Material/Texture/LevelSequence
+    - `create_data_table(table_name, row_struct, path="/Game", unique_name=False, save_asset=True)` - Create a DataTable asset with a native or user-defined row struct
     - `save_asset(asset_path="", object_path="", asset_name="", name="", only_if_dirty=False)` - Save an asset resolved by path or name
     - `import_asset(destination_path, filename="", source_files=[], destination_name="", async_import=True)` - Import external files into the Content Browser; currently uses async import to avoid UE5.7 Interchange sync assertions
     - `export_asset(export_path, asset_path="", asset_paths=[], clean_filenames=True)` - Export one or more assets to an external directory

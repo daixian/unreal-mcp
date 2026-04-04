@@ -196,6 +196,62 @@ private:
     TSharedPtr<FJsonObject> HandleSetWorldSettings(const TSharedPtr<FJsonObject>& Params);
 
     /**
+     * @brief 读取当前编辑器世界中的 Data Layer 列表。
+     * @param [in] Params 查询参数。
+     * @return TSharedPtr<FJsonObject> Data Layer 列表结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetDataLayers(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 创建 DataLayerAsset 并在当前编辑器世界中生成 Data Layer 实例。
+     * @param [in] Params 创建参数。
+     * @return TSharedPtr<FJsonObject> 创建结果。
+     */
+    TSharedPtr<FJsonObject> HandleCreateDataLayer(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 设置指定 Actor 的 Data Layer 归属。
+     * @param [in] Params 设置参数。
+     * @return TSharedPtr<FJsonObject> Data Layer 写入结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetActorDataLayers(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 设置指定 Data Layer 的编辑器状态。
+     * @param [in] Params 设置参数。
+     * @return TSharedPtr<FJsonObject> Data Layer 状态写入结果。
+     */
+    TSharedPtr<FJsonObject> HandleSetDataLayerState(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 执行单次线性碰撞检测。
+     * @param [in] Params Trace 参数。
+     * @return TSharedPtr<FJsonObject> Trace 结果。
+     */
+    TSharedPtr<FJsonObject> HandleLineTrace(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 执行单次 Box Sweep 碰撞检测。
+     * @param [in] Params Trace 参数。
+     * @return TSharedPtr<FJsonObject> Trace 结果。
+     */
+    TSharedPtr<FJsonObject> HandleBoxTrace(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 执行单次 Sphere Sweep 碰撞检测。
+     * @param [in] Params Trace 参数。
+     * @return TSharedPtr<FJsonObject> Trace 结果。
+     */
+    TSharedPtr<FJsonObject> HandleSphereTrace(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 获取当前鼠标位置对应的命中结果。
+     * @param [in] Params 查询参数。
+     * @return TSharedPtr<FJsonObject> 鼠标命中结果。
+     */
+    TSharedPtr<FJsonObject> HandleGetHitResultUnderCursor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
      * @brief 设置 Actor 指定属性值。
      * @param [in] Params 属性设置参数。
      * @return TSharedPtr<FJsonObject> 设置结果。
@@ -306,6 +362,20 @@ private:
      * @return TSharedPtr<FJsonObject> 分离结果。
      */
     TSharedPtr<FJsonObject> HandleDetachActor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 在关卡中的现有 Actor 实例上添加组件。
+     * @param [in] Params 添加参数（包含目标 Actor、组件类与可选初始属性）。
+     * @return TSharedPtr<FJsonObject> 添加结果。
+     */
+    TSharedPtr<FJsonObject> HandleAddComponentToActor(const TSharedPtr<FJsonObject>& Params);
+
+    /**
+     * @brief 从关卡中的现有 Actor 实例上移除组件。
+     * @param [in] Params 移除参数（包含目标 Actor 与组件名）。
+     * @return TSharedPtr<FJsonObject> 移除结果。
+     */
+    TSharedPtr<FJsonObject> HandleRemoveComponentFromActor(const TSharedPtr<FJsonObject>& Params);
 
     /**
      * @brief 批量设置多个 Actor 的 Transform。

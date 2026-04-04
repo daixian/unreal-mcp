@@ -20,9 +20,9 @@
 | 工具 | 关键参数 | 说明 |
 | --- | --- | --- |
 | `get_actors_in_level` | `include_components=False`、`detailed_components=True`、`world_type="auto"` | 返回当前关卡 Actor 列表（本地Python）。Python 层会归一化为 `success`、`actors`、`actor_count` 等字段。 |
-| `find_actors_by_name` | `pattern`、`world_type="auto"`、`include_components=False`、`detailed_components=True` | 按名称模式筛选 Actor（本地Python）。成功返回结构与 `get_actors_in_level` 类似，并附带 `pattern`。 |
+| `find_actors_by_name` | `pattern`、`world_type="auto"`、`include_components=False`、`detailed_components=True`、`class_name=""`、`tag=""`、`tags=[]`、`path_contains=""`、`sort_by="name"`、`sort_desc=false` | 按名称模式筛选 Actor（本地Python）。当前已支持类过滤、Tag 过滤、路径过滤与排序，并在结果中回显 `filters`。 |
 | `find_actors` | 可选 `name_pattern`、`class_name`、`folder_path`、`path_contains`、`tag` / `tags=[]`、`data_layer`、`sort_by="name"`、`sort_desc=False`、`world_type="auto"` | 按类、标签、文件夹、路径、DataLayer 等条件组合筛选 Actor（本地Python）。成功返回结构与 `get_actors_in_level` 类似，并附带 `filters`。 |
-| `spawn_actor` | `name`、`type`、`location=[0,0,0]`、`rotation=[0,0,0]` | 在编辑器 World 里生成原生 Actor（本地Python）。当前 Python 工具公开的是 `spawn_actor`，不是旧别名 `create_actor`。 |
+| `spawn_actor` | `name`、可选 `type=""`、`class_path=""`、`template_actor=""`、`location=[0,0,0]`、`rotation=[0,0,0]`、`scale=[1,1,1]`、`world_type="editor"` | 在编辑器 World 里生成 Actor（本地Python）。支持原生 `type`、类路径 `class_path`，或按 `template_actor` 复制现有 Actor。 |
 | `spawn_actor_from_class` | `actor_name`、`class_path`、可选 `location=[0,0,0]`、`rotation=[0,0,0]`、`scale=[1,1,1]`、`world_type="editor"` | 按原生类路径或 Blueprint 生成类路径在关卡中生成 Actor（本地Python）。当前只支持 `editor` 世界。 |
 | `create_light` | `actor_name`、`light_type`、可选 `location`、`rotation`、`intensity`、`light_color` 等 | 创建 Point / Spot / Directional Light Actor，并可在创建时直接写入常用灯光属性（本地Python）。 |
 | `delete_actor` | `name` | 删除指定名称的 Actor（本地Python）。成功时返回被删除 Actor 的摘要。 |
@@ -37,6 +37,8 @@
 | `set_light_properties` | `name` 或 `actor_path`、可选 `world_type` 与一组灯光属性 | 修改已有灯光 Actor 的强度、颜色、阴影、移动性、Spot 锥角等常用属性（本地Python）。 |
 | `attach_actor` | `name` 或 `actor_path`、`parent_name` 或 `parent_actor_path`、可选 `socket_name`、`keep_world_transform=True`、`world_type="auto"` | 将子 Actor 挂接到父 Actor（本地Python）。支持按名称或完整 Actor 路径解析双方对象。 |
 | `detach_actor` | `name` 或 `actor_path`、可选 `keep_world_transform=True`、`world_type="auto"` | 将 Actor 从父对象分离（本地Python）。 |
+| `add_component_to_actor` | `component_class`、`name` 或 `actor_path`、可选 `component_name`、`parent_component_name`、`socket_name`、`location`、`rotation`、`scale`、`component_properties={}` | 在现有 Actor 实例上添加一个组件实例（本地Python）。当前只支持 `editor` 世界。 |
+| `remove_component_from_actor` | `component_name`、`name` 或 `actor_path` | 从现有 Actor 实例上移除一个组件实例（本地Python）。当前只支持 `editor` 世界。 |
 | `set_post_process_settings` | `name` 或 `actor_path`、可选 `world_type`、`blend_radius`、`blend_weight`、`priority`、`enabled`、`unbound`、`settings={...}` | 修改 `PostProcessVolume` 的常用 Volume 参数，并批量写入 `PostProcessSettings` 字段（本地Python）。 |
 | `get_actor_properties` | `name` 或 `actor_path`、`include_components=True`、`detailed_components=True`、`world_type="auto"` | 获取单个 Actor 的详细属性，可按名称或完整路径查找（本地Python）。 |
 | `get_actor_components` | `name` 或 `actor_path`、`detailed_components=True`、`world_type="auto"` | 获取单个 Actor 的组件列表（本地Python）。 |
@@ -44,11 +46,17 @@
 | `get_world_settings` | `world_type="editor"`、可选 `property_names=[]` | 读取当前编辑器 World 的 `WorldSettings` 常用属性或指定属性（本地Python）。 |
 | `set_world_settings` | `settings={...}`、`world_type="editor"` | 批量写入当前编辑器 World 的 `WorldSettings` 属性（本地Python）。 |
 | `set_actor_property` | `name`、`property_name`、`property_value` | 通过反射设置 Actor 属性（本地Python）。当前已覆盖常见布尔、数字、字符串、Name 与枚举值。 |
-| `spawn_blueprint_actor` | `blueprint_name`、`actor_name`、`location=[0,0,0]`、`rotation=[0,0,0]`、`scale=[1,1,1]` | 将 Blueprint 资产实例化到场景中（本地Python）。默认兼容旧的 `/Game/Blueprints/<name>` 查找方式，也支持直接传完整资产路径。 |
+| `spawn_blueprint_actor` | `blueprint_name`、`actor_name`、`location=[0,0,0]`、`rotation=[0,0,0]`、`scale=[1,1,1]` | 将 Blueprint 资产实例化到场景中（本地Python）。支持完整资产路径，也支持按短名在项目内唯一匹配任意目录中的 Blueprint；若同名资源有多个，会要求改用完整路径。 |
 
 ## 类型与限制
 
-`spawn_actor` 当前对外稳定支持的 `type` 值来自 Unreal 侧显式分支：
+`spawn_actor` 当前对外稳定支持以下三种入口：
+
+- `type`
+- `class_path`
+- `template_actor`
+
+其中 `type` 当前对外稳定支持的值来自 Unreal 侧显式分支：
 
 - `StaticMeshActor`
 - `PointLight`
@@ -58,8 +66,17 @@
 
 补充说明：
 
-- Unreal 侧 `HandleSpawnActor` 实际还支持 `scale` 与 `static_mesh` 参数，但当前 Python MCP 工具没有把这两个参数公开出来。
-- 如果后续需要对外支持这两个字段，必须同时修改 Python 工具签名与文档。
+- `type`、`class_path`、`template_actor` 至少需要提供一个。
+- `world_type` 当前已经对外公开，但 `spawn_actor` 仍只支持 `editor` 世界；如果传 `auto` 且当前自动解析到 `pie`，会直接报错，而不是悄悄落回编辑器世界。
+- `class_path` 支持：
+  - 原生类路径，例如 `/Script/Engine.StaticMeshActor`
+  - Blueprint 资产路径或生成类路径，例如 `/Game/Blueprints/BP_Test.BP_Test` 或 `/Game/Blueprints/BP_Test.BP_Test_C`
+- `template_actor` 支持传：
+  - Actor 名称
+  - Actor Label
+  - 完整 Actor 路径
+- 当 `template_actor` 与 `type/class_path` 同时传入时，系统会检查模板 Actor 的真实类是否一致；不一致会直接报错，避免生成来源不明确。
+- Unreal 侧 `spawn_actor` 仍支持 `static_mesh` 参数；若本次是按 `type/class_path` 生成 `StaticMeshActor`，仍可同时传 `static_mesh`。
 - `spawn_actor_from_class` 当前支持两类 `class_path` 输入：
   - 原生类路径，例如 `/Script/Engine.StaticMeshActor`
   - Blueprint 资产路径或生成类路径，例如 `/Game/Blueprints/BP_Test.BP_Test` 或 `/Game/Blueprints/BP_Test.BP_Test_C`
@@ -100,6 +117,20 @@
   - key 直接对应 `PostProcessSettings` 属性名，例如 `bloom_intensity`、`vignette_intensity`、`auto_exposure_min_brightness`
   - 工具会自动把对应的 `override_<property>` 设为 `true`
   - 当前已稳定覆盖标量、布尔、枚举字符串、`LinearColor` 和 `Vector`
+
+`add_component_to_actor` / `remove_component_from_actor` 当前约束：
+
+- 两条命令都只支持 `editor` 世界。
+- `add_component_to_actor`
+  - `component_class` 支持：
+    - Unreal Python 类名，例如 `StaticMeshComponent`
+    - 完整类路径，例如 `/Script/Engine.StaticMeshComponent`
+  - `parent_component_name` 不传时，默认把新组件挂到 Actor 根句柄下。
+  - `location`、`rotation`、`scale` 仅对 `SceneComponent` 生效，写入相对变换。
+  - `component_properties` 必须是对象，key 直接对应组件反射属性名。
+- `remove_component_from_actor`
+  - 当前按组件名称精确匹配。
+  - 出于稳定性考虑，不允许删除当前 Actor 的根组件。
 
 `get_world_settings` / `set_world_settings` 当前约束：
 
@@ -145,6 +176,10 @@
   - 返回 `child_actor`、`child_actor_path`、`parent_actor`、`parent_actor_path`、`socket_name`
 - `detach_actor`：
   - 返回 `actor`、`actor_path`
+- `add_component_to_actor`：
+  - 返回 `actor`、`actor_path`、`component`、`component_path`、`component_class`、`component_details`
+- `remove_component_from_actor`：
+  - 返回 `actor`、`actor_path`、`removed_component`、`deleted_count`
 - `set_actor_tags`：
   - 返回 `actor`、`actor_path`、`tags`、`tag_count`
 - `set_actor_folder_path`：
@@ -157,6 +192,8 @@
   - 返回 `actors`、`actor_count`，每项为写入后的 Actor 摘要
 - `spawn_actor_from_class`：
   - 返回 `requested_name`、`class_path`、`resolved_class_path`、`resolved_class_name`
+- `spawn_actor`：
+  - 额外可能返回 `requested_type`、`class_path`、`template_actor`、`spawned_from_template`、`template_actor_class`
 
 ## 调用示例
 
@@ -253,6 +290,33 @@
     "actor_names": ["SM_TestCube_A", "SM_TestCube_B"],
     "world_type": "editor",
     "scale": [1.5, 1.5, 1.5]
+  }
+}
+```
+
+### 给现有 Actor 添加一个 StaticMeshComponent
+
+```json
+{
+  "tool": "add_component_to_actor",
+  "args": {
+    "name": "SM_TestCube_A",
+    "component_class": "StaticMeshComponent",
+    "component_name": "ExtraStaticMesh",
+    "location": [0, 0, 50],
+    "scale": [1.0, 1.0, 1.0]
+  }
+}
+```
+
+### 从现有 Actor 上移除组件
+
+```json
+{
+  "tool": "remove_component_from_actor",
+  "args": {
+    "name": "SM_TestCube_A",
+    "component_name": "ExtraStaticMesh"
   }
 }
 ```

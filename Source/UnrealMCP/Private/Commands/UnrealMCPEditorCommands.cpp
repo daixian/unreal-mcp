@@ -734,6 +734,98 @@ namespace UnrealMCPEditorCommandsPrivate
     }
 
     /**
+     * @brief 读取指定视口像素并同步写出 PNG。
+     * @param [in] Viewport 目标视口。
+     * @param [in] FilePath 输出路径。
+     * @param [in] RequestedResolution 期望分辨率，零值表示保持原始尺寸。
+     * @param [in] bTransparentBackground 是否把输出 PNG 的 Alpha 写为透明。
+     * @param [out] OutWrittenResolution 实际写出的分辨率。
+     * @param [out] OutErrorMessage 失败时的错误信息。
+     * @return bool 成功返回 true。
+     */
+    bool CaptureViewportPixelsToPng(
+        FViewport* Viewport,
+        const FString& FilePath,
+        const FIntPoint& RequestedResolution,
+        bool bTransparentBackground,
+        FIntPoint& OutWrittenResolution,
+        FString& OutErrorMessage
+    )
+    {
+        if (!Viewport)
+        {
+            OutErrorMessage = TEXT("目标视口不可用");
+            return false;
+        }
+
+        if (!EnsureCaptureDirectoryExists(FilePath, OutErrorMessage))
+        {
+            return false;
+        }
+
+        const FIntPoint SourceResolution = Viewport->GetSizeXY();
+        if (SourceResolution.X <= 0 || SourceResolution.Y <= 0)
+        {
+            OutErrorMessage = TEXT("目标视口尺寸无效");
+            return false;
+        }
+
+        TArray<FColor> Bitmap;
+        const FIntRect ViewRect(0, 0, SourceResolution.X, SourceResolution.Y);
+        if (!Viewport->ReadPixels(Bitmap, FReadSurfaceDataFlags(), ViewRect))
+        {
+            OutErrorMessage = TEXT("读取视口像素失败");
+            return false;
+        }
+
+        if (bTransparentBackground)
+        {
+            for (FColor& Pixel : Bitmap)
+            {
+                Pixel.A = 0;
+            }
+        }
+
+        const FIntPoint TargetResolution = (RequestedResolution.X > 0 && RequestedResolution.Y > 0)
+            ? RequestedResolution
+            : SourceResolution;
+
+        const TArray<FColor>* OutputBitmap = &Bitmap;
+        TArray<FColor> ResizedBitmap;
+        if (TargetResolution != SourceResolution)
+        {
+            FImageUtils::ImageResize(
+                SourceResolution.X,
+                SourceResolution.Y,
+                Bitmap,
+                TargetResolution.X,
+                TargetResolution.Y,
+                ResizedBitmap,
+                true,
+                false
+            );
+            OutputBitmap = &ResizedBitmap;
+        }
+
+        TArray64<uint8> CompressedBitmap;
+        CompressImageAsPngCompat(
+            TargetResolution.X,
+            TargetResolution.Y,
+            *OutputBitmap,
+            CompressedBitmap
+        );
+
+        if (!FFileHelper::SaveArrayToFile(CompressedBitmap, *FilePath))
+        {
+            OutErrorMessage = FString::Printf(TEXT("保存截图文件失败: %s"), *FilePath);
+            return false;
+        }
+
+        OutWrittenResolution = TargetResolution;
+        return true;
+    }
+
+    /**
      * @brief 构造序列帧输出文件路径。
      * @param [in] OutputDirectory 输出目录。
      * @param [in] BaseFilename 文件名前缀。
@@ -1123,6 +1215,93 @@ namespace UnrealMCPEditorCommandsPrivate
 
         OutErrorMessage = TEXT("Failed to resolve active level viewport");
         return nullptr;
+    }
+
+    /**
+     * @brief 解析截图命令要使用的关卡视口客户端。
+     * @param [in] Params 命令参数，允许传入 `viewport_index`。
+     * @param [out] OutViewportClient 解析出的视口客户端。
+     * @param [out] OutViewportIndex 解析出的有效视口索引（按有效关卡视口重新编号）。
+     * @param [out] OutErrorMessage 失败时的错误信息。
+     * @return bool 成功返回 true。
+     */
+    bool TryResolveLevelViewportClient(
+        const TSharedPtr<FJsonObject>& Params,
+        FLevelEditorViewportClient*& OutViewportClient,
+        int32& OutViewportIndex,
+        FString& OutErrorMessage
+    )
+    {
+        OutViewportClient = nullptr;
+        OutViewportIndex = INDEX_NONE;
+
+        if (!GEditor)
+        {
+            OutErrorMessage = TEXT("编辑器实例不可用");
+            return false;
+        }
+
+        TArray<FLevelEditorViewportClient*> ValidViewportClients;
+        for (FLevelEditorViewportClient* ViewportClient : GEditor->GetLevelViewportClients())
+        {
+            if (ViewportClient && ViewportClient->Viewport)
+            {
+                ValidViewportClients.Add(ViewportClient);
+            }
+        }
+
+        if (ValidViewportClients.Num() == 0)
+        {
+            OutErrorMessage = TEXT("未找到可用的关卡视口");
+            return false;
+        }
+
+        if (Params.IsValid() && Params->HasField(TEXT("viewport_index")))
+        {
+            double ViewportIndexNumber = 0.0;
+            if (!Params->TryGetNumberField(TEXT("viewport_index"), ViewportIndexNumber))
+            {
+                OutErrorMessage = TEXT("参数 'viewport_index' 必须是数字");
+                return false;
+            }
+
+            const int32 RequestedViewportIndex = FMath::RoundToInt(ViewportIndexNumber);
+            if (!FMath::IsNearlyEqual(ViewportIndexNumber, static_cast<double>(RequestedViewportIndex)))
+            {
+                OutErrorMessage = TEXT("参数 'viewport_index' 必须是整数");
+                return false;
+            }
+
+            if (!ValidViewportClients.IsValidIndex(RequestedViewportIndex))
+            {
+                OutErrorMessage = FString::Printf(
+                    TEXT("参数 'viewport_index' 超出范围，当前有效视口数量为 %d"),
+                    ValidViewportClients.Num()
+                );
+                return false;
+            }
+
+            OutViewportClient = ValidViewportClients[RequestedViewportIndex];
+            OutViewportIndex = RequestedViewportIndex;
+            return true;
+        }
+
+        FLevelEditorViewportClient* ActiveViewportClient = GetActiveLevelViewportClient(OutErrorMessage);
+        if (!ActiveViewportClient || !ActiveViewportClient->Viewport)
+        {
+            return false;
+        }
+
+        const int32 ResolvedViewportIndex = ValidViewportClients.IndexOfByKey(ActiveViewportClient);
+        if (ResolvedViewportIndex == INDEX_NONE)
+        {
+            OutErrorMessage = TEXT("活动视口不在当前可用的关卡视口列表中");
+            return false;
+        }
+
+        OutViewportClient = ActiveViewportClient;
+        OutViewportIndex = ResolvedViewportIndex;
+        return true;
     }
 
     /**
@@ -1618,6 +1797,38 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     {
         return HandleSetWorldSettings(Params);
     }
+    else if (CommandType == TEXT("get_data_layers"))
+    {
+        return HandleGetDataLayers(Params);
+    }
+    else if (CommandType == TEXT("create_data_layer"))
+    {
+        return HandleCreateDataLayer(Params);
+    }
+    else if (CommandType == TEXT("set_actor_data_layers"))
+    {
+        return HandleSetActorDataLayers(Params);
+    }
+    else if (CommandType == TEXT("set_data_layer_state"))
+    {
+        return HandleSetDataLayerState(Params);
+    }
+    else if (CommandType == TEXT("line_trace"))
+    {
+        return HandleLineTrace(Params);
+    }
+    else if (CommandType == TEXT("box_trace"))
+    {
+        return HandleBoxTrace(Params);
+    }
+    else if (CommandType == TEXT("sphere_trace"))
+    {
+        return HandleSphereTrace(Params);
+    }
+    else if (CommandType == TEXT("get_hit_result_under_cursor"))
+    {
+        return HandleGetHitResultUnderCursor(Params);
+    }
     else if (CommandType == TEXT("set_actor_property"))
     {
         return HandleSetActorProperty(Params);
@@ -1677,6 +1888,14 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCommand(const FString& C
     else if (CommandType == TEXT("detach_actor"))
     {
         return HandleDetachActor(Params);
+    }
+    else if (CommandType == TEXT("add_component_to_actor"))
+    {
+        return HandleAddComponentToActor(Params);
+    }
+    else if (CommandType == TEXT("remove_component_from_actor"))
+    {
+        return HandleRemoveComponentFromActor(Params);
     }
     else if (CommandType == TEXT("set_actors_transform"))
     {
@@ -1986,9 +2205,17 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleStartStandaloneGame(cons
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleStopPIE(const TSharedPtr<FJsonObject>& Params)
 {
+    (void)Params;
+
     if (!GEditor)
     {
         return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Editor instance is not available"));
+    }
+
+    const bool bHadQueuedRequest = GEditor->IsPlaySessionRequestQueued();
+    if (bHadQueuedRequest)
+    {
+        GEditor->CancelRequestPlaySession();
     }
 
     if (GEditor->IsPlayingOnLocalPCSession())
@@ -1999,7 +2226,8 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleStopPIE(const TSharedPtr
         ResultObj->SetBoolField(TEXT("success"), true);
         ResultObj->SetBoolField(TEXT("already_stopped"), false);
         ResultObj->SetBoolField(TEXT("stopped_standalone_game"), true);
-        ResultObj->SetStringField(TEXT("message"), TEXT("Standalone Game stop requested"));
+        ResultObj->SetBoolField(TEXT("cancelled_queued_request"), bHadQueuedRequest);
+        ResultObj->SetStringField(TEXT("message"), TEXT("已请求停止 Standalone Game"));
         return ResultObj;
     }
 
@@ -2007,8 +2235,12 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleStopPIE(const TSharedPtr
     {
         TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
         ResultObj->SetBoolField(TEXT("success"), true);
-        ResultObj->SetBoolField(TEXT("already_stopped"), true);
-        ResultObj->SetStringField(TEXT("message"), TEXT("PIE is not running"));
+        ResultObj->SetBoolField(TEXT("already_stopped"), !bHadQueuedRequest);
+        ResultObj->SetBoolField(TEXT("cancelled_queued_request"), bHadQueuedRequest);
+        ResultObj->SetStringField(
+            TEXT("message"),
+            bHadQueuedRequest ? TEXT("已取消排队中的 Play 请求") : TEXT("当前没有运行中的 PIE")
+        );
         return ResultObj;
     }
 
@@ -2017,7 +2249,10 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleStopPIE(const TSharedPtr
     TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
     ResultObj->SetBoolField(TEXT("success"), true);
     ResultObj->SetBoolField(TEXT("already_stopped"), false);
-    ResultObj->SetStringField(TEXT("message"), TEXT("PIE stop requested"));
+    ResultObj->SetBoolField(TEXT("cancelled_queued_request"), bHadQueuedRequest);
+    ResultObj->SetBoolField(TEXT("play_world_available"), GEditor->PlayWorld != nullptr);
+    ResultObj->SetBoolField(TEXT("is_vr_preview"), GEditor->IsVRPreviewActive());
+    ResultObj->SetStringField(TEXT("message"), TEXT("已请求结束 PIE/VR Preview"));
     return ResultObj;
 }
 
@@ -2660,6 +2895,118 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetWorldSettings(const T
 }
 
 /**
+ * @brief 读取当前编辑器世界中的 Data Layer 列表。
+ * @param [in] Params 查询参数。
+ * @return TSharedPtr<FJsonObject> Data Layer 列表结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetDataLayers(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_data_layers"),
+        Params);
+}
+
+/**
+ * @brief 创建 DataLayerAsset 并在当前编辑器世界中生成 Data Layer 实例。
+ * @param [in] Params 创建参数。
+ * @return TSharedPtr<FJsonObject> 创建结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCreateDataLayer(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("create_data_layer"),
+        Params);
+}
+
+/**
+ * @brief 设置指定 Actor 的 Data Layer 归属。
+ * @param [in] Params 设置参数。
+ * @return TSharedPtr<FJsonObject> Data Layer 写入结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetActorDataLayers(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_actor_data_layers"),
+        Params);
+}
+
+/**
+ * @brief 设置指定 Data Layer 的编辑器状态。
+ * @param [in] Params 设置参数。
+ * @return TSharedPtr<FJsonObject> Data Layer 状态写入结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetDataLayerState(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_data_layer_state"),
+        Params);
+}
+
+/**
+ * @brief 执行单次线性碰撞检测。
+ * @param [in] Params Trace 参数。
+ * @return TSharedPtr<FJsonObject> Trace 结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleLineTrace(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("line_trace"),
+        Params);
+}
+
+/**
+ * @brief 执行单次 Box Sweep 碰撞检测。
+ * @param [in] Params Trace 参数。
+ * @return TSharedPtr<FJsonObject> Trace 结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleBoxTrace(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("box_trace"),
+        Params);
+}
+
+/**
+ * @brief 执行单次 Sphere Sweep 碰撞检测。
+ * @param [in] Params Trace 参数。
+ * @return TSharedPtr<FJsonObject> Trace 结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSphereTrace(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("sphere_trace"),
+        Params);
+}
+
+/**
+ * @brief 获取当前鼠标位置对应的命中结果。
+ * @param [in] Params 查询参数。
+ * @return TSharedPtr<FJsonObject> 鼠标命中结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetHitResultUnderCursor(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_hit_result_under_cursor"),
+        Params);
+}
+
+/**
  * @brief 创建灯光 Actor。
  * @param [in] Params 创建参数。
  * @return TSharedPtr<FJsonObject> 创建结果。
@@ -2744,6 +3091,34 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleDetachActor(const TShare
 }
 
 /**
+ * @brief 在现有 Actor 实例上添加组件。
+ * @param [in] Params 添加参数。
+ * @return TSharedPtr<FJsonObject> 添加结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleAddComponentToActor(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("add_component_to_actor"),
+        Params);
+}
+
+/**
+ * @brief 从现有 Actor 实例上移除组件。
+ * @param [in] Params 移除参数。
+ * @return TSharedPtr<FJsonObject> 移除结果。
+ */
+TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleRemoveComponentFromActor(const TSharedPtr<FJsonObject>& Params)
+{
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("remove_component_from_actor"),
+        Params);
+}
+
+/**
  * @brief 批量设置多个 Actor 的 Transform。
  * @param [in] Params 批量变换参数。
  * @return TSharedPtr<FJsonObject> 更新结果。
@@ -2778,46 +3153,125 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleFocusViewport(const TSha
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleTakeScreenshot(const TSharedPtr<FJsonObject>& Params)
 {
-    // Get file path parameter
     FString FilePath;
     if (!Params->TryGetStringField(TEXT("filepath"), FilePath))
     {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'filepath' parameter"));
+        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("缺少 'filepath' 参数"));
     }
-    
-    // Ensure the file path has a proper extension
+
     if (!FilePath.EndsWith(TEXT(".png")))
     {
         FilePath += TEXT(".png");
     }
 
-    // Get the active viewport
-    if (GEditor && GEditor->GetActiveViewport())
+    bool bShowUI = false;
+    Params->TryGetBoolField(TEXT("show_ui"), bShowUI);
+
+    bool bTransparentBackground = false;
+    Params->TryGetBoolField(TEXT("transparent_background"), bTransparentBackground);
+
+    FIntPoint RequestedResolution = FIntPoint::ZeroValue;
+    if (Params->HasField(TEXT("resolution")))
     {
-        FViewport* Viewport = GEditor->GetActiveViewport();
-        TArray<FColor> Bitmap;
-        FIntRect ViewportRect(0, 0, Viewport->GetSizeXY().X, Viewport->GetSizeXY().Y);
-        
-        if (Viewport->ReadPixels(Bitmap, FReadSurfaceDataFlags(), ViewportRect))
+        FString ResolutionErrorMessage;
+        if (!UnrealMCPEditorCommandsPrivate::TryGetIntPointField(
+                Params,
+                TEXT("resolution"),
+                RequestedResolution,
+                ResolutionErrorMessage
+            ))
         {
-            TArray64<uint8> CompressedBitmap;
-            UnrealMCPEditorCommandsPrivate::CompressImageAsPngCompat(
-                Viewport->GetSizeXY().X,
-                Viewport->GetSizeXY().Y,
-                Bitmap,
-                CompressedBitmap
-            );
-            
-            if (FFileHelper::SaveArrayToFile(CompressedBitmap, *FilePath))
-            {
-                TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
-                ResultObj->SetStringField(TEXT("filepath"), FilePath);
-                return ResultObj;
-            }
+            return FUnrealMCPCommonUtils::CreateErrorResponse(ResolutionErrorMessage);
+        }
+
+        if (RequestedResolution.X <= 0 || RequestedResolution.Y <= 0)
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("参数 'resolution' 必须包含正整数"));
         }
     }
-    
-    return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Failed to take screenshot"));
+
+    FLevelEditorViewportClient* ViewportClient = nullptr;
+    int32 ViewportIndex = INDEX_NONE;
+    FString ViewportErrorMessage;
+    if (!UnrealMCPEditorCommandsPrivate::TryResolveLevelViewportClient(
+            Params,
+            ViewportClient,
+            ViewportIndex,
+            ViewportErrorMessage
+        ))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(ViewportErrorMessage);
+    }
+
+    if (bShowUI && Params->HasField(TEXT("viewport_index")))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            TEXT("show_ui=true 时暂不支持指定 viewport_index，请先切换目标活动视口")
+        );
+    }
+
+    if (bShowUI && (RequestedResolution.X > 0 || RequestedResolution.Y > 0))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            TEXT("show_ui=true 时暂不支持自定义 resolution，请改用 take_highres_screenshot 或关闭 show_ui")
+        );
+    }
+
+    if (bShowUI && bTransparentBackground)
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(
+            TEXT("show_ui=true 时暂不支持 transparent_background")
+        );
+    }
+
+    TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+    ResultObj->SetStringField(TEXT("filepath"), FilePath);
+    ResultObj->SetBoolField(TEXT("show_ui"), bShowUI);
+    ResultObj->SetBoolField(TEXT("transparent_background"), bTransparentBackground);
+    ResultObj->SetNumberField(TEXT("viewport_index"), ViewportIndex);
+    ResultObj->SetStringField(
+        TEXT("viewport_type"),
+        UnrealMCPEditorCommandsPrivate::ViewportTypeToString(ViewportClient->ViewportType)
+    );
+    ResultObj->SetStringField(TEXT("implementation"), TEXT("cpp"));
+
+    if (bShowUI)
+    {
+        if (!GEditor || GEditor->GetActiveViewport() != ViewportClient->Viewport)
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("show_ui=true 仅支持当前活动关卡视口"));
+        }
+
+        FString EnsureDirectoryErrorMessage;
+        if (!UnrealMCPEditorCommandsPrivate::EnsureCaptureDirectoryExists(FilePath, EnsureDirectoryErrorMessage))
+        {
+            return FUnrealMCPCommonUtils::CreateErrorResponse(EnsureDirectoryErrorMessage);
+        }
+
+        FScreenshotRequest::RequestScreenshot(FilePath, true, false, false);
+        ResultObj->SetBoolField(TEXT("request_queued"), true);
+        ResultObj->SetBoolField(TEXT("written"), false);
+        return ResultObj;
+    }
+
+    FString CaptureErrorMessage;
+    FIntPoint WrittenResolution = FIntPoint::ZeroValue;
+    if (!UnrealMCPEditorCommandsPrivate::CaptureViewportPixelsToPng(
+            ViewportClient->Viewport,
+            FilePath,
+            RequestedResolution,
+            bTransparentBackground,
+            WrittenResolution,
+            CaptureErrorMessage
+        ))
+    {
+        return FUnrealMCPCommonUtils::CreateErrorResponse(CaptureErrorMessage);
+    }
+
+    ResultObj->SetBoolField(TEXT("request_queued"), false);
+    ResultObj->SetBoolField(TEXT("written"), true);
+    UnrealMCPEditorCommandsPrivate::SetIntPointField(ResultObj, TEXT("resolution"), WrittenResolution);
+    return ResultObj;
 }
 
 /**
@@ -3096,31 +3550,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleCloseAssetEditor(const T
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleExecuteConsoleCommand(const TSharedPtr<FJsonObject>& Params)
 {
-    FString Command;
-    if (!Params->TryGetStringField(TEXT("command"), Command) || Command.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'command' parameter"));
-    }
-
-    FString ResolvedWorldType;
-    FString ErrorMessage;
-    UWorld* World = UnrealMCPEditorCommandsPrivate::ResolveWorldByParams(Params, ResolvedWorldType, ErrorMessage);
-    if (!World)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    const bool bExecuted = (GEditor && GEditor->Exec(World, *Command)) || (GEngine && GEngine->Exec(World, *Command));
-    if (!bExecuted)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(FString::Printf(TEXT("Failed to execute console command: %s"), *Command));
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("command"), Command);
-    UnrealMCPEditorCommandsPrivate::AppendWorldInfo(Result, World, ResolvedWorldType);
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("execute_console_command"),
+        Params);
 }
 
 /**
@@ -3275,70 +3709,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleRunEditorUtilityBlueprin
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetViewportMode(const TSharedPtr<FJsonObject>& Params)
 {
-    FString RequestedViewMode;
-    if (!Params->TryGetStringField(TEXT("view_mode"), RequestedViewMode) || RequestedViewMode.TrimStartAndEnd().IsEmpty())
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Missing 'view_mode' parameter"));
-    }
-
-    EViewModeIndex ViewModeIndex = VMI_Lit;
-    if (!UnrealMCPEditorCommandsPrivate::TryResolveViewModeIndex(RequestedViewMode, ViewModeIndex))
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(
-            FString::Printf(TEXT("Invalid 'view_mode': %s"), *RequestedViewMode));
-    }
-
-    const bool bApplyToAll = Params->HasTypedField<EJson::Boolean>(TEXT("apply_to_all"))
-        ? Params->GetBoolField(TEXT("apply_to_all"))
-        : false;
-
-    TArray<FLevelEditorViewportClient*> TargetViewports;
-    if (bApplyToAll)
-    {
-        if (!GEditor)
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("Editor instance is not available"));
-        }
-
-        for (FLevelEditorViewportClient* ViewportClient : GEditor->GetLevelViewportClients())
-        {
-            if (ViewportClient)
-            {
-                TargetViewports.Add(ViewportClient);
-            }
-        }
-    }
-    else
-    {
-        FString ErrorMessage;
-        if (FLevelEditorViewportClient* ActiveViewportClient = UnrealMCPEditorCommandsPrivate::GetActiveLevelViewportClient(ErrorMessage))
-        {
-            TargetViewports.Add(ActiveViewportClient);
-        }
-        else
-        {
-            return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-        }
-    }
-
-    if (TargetViewports.Num() == 0)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(TEXT("No level viewport is available"));
-    }
-
-    for (FLevelEditorViewportClient* ViewportClient : TargetViewports)
-    {
-        ViewportClient->SetViewMode(ViewModeIndex);
-        ViewportClient->Invalidate();
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    Result->SetStringField(TEXT("view_mode"), UnrealMCPEditorCommandsPrivate::ViewModeIndexToString(ViewModeIndex));
-    Result->SetNumberField(TEXT("view_mode_index"), static_cast<int32>(ViewModeIndex));
-    Result->SetBoolField(TEXT("apply_to_all"), bApplyToAll);
-    Result->SetNumberField(TEXT("updated_viewport_count"), TargetViewports.Num());
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("set_viewport_mode"),
+        Params);
 }
 
 /**
@@ -3348,32 +3723,11 @@ TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleSetViewportMode(const TS
  */
 TSharedPtr<FJsonObject> FUnrealMCPEditorCommands::HandleGetViewportCamera(const TSharedPtr<FJsonObject>& Params)
 {
-    (void)Params;
-
-    FString ErrorMessage;
-    FLevelEditorViewportClient* ViewportClient = UnrealMCPEditorCommandsPrivate::GetActiveLevelViewportClient(ErrorMessage);
-    if (!ViewportClient)
-    {
-        return FUnrealMCPCommonUtils::CreateErrorResponse(ErrorMessage);
-    }
-
-    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-    Result->SetBoolField(TEXT("success"), true);
-    UnrealMCPEditorCommandsPrivate::SetVectorField(Result, TEXT("location"), ViewportClient->GetViewLocation());
-    UnrealMCPEditorCommandsPrivate::SetRotatorField(Result, TEXT("rotation"), ViewportClient->GetViewRotation());
-    Result->SetNumberField(TEXT("fov"), ViewportClient->ViewFOV);
-    Result->SetStringField(TEXT("view_mode"), UnrealMCPEditorCommandsPrivate::ViewModeIndexToString(ViewportClient->GetViewMode()));
-    Result->SetNumberField(TEXT("view_mode_index"), static_cast<int32>(ViewportClient->GetViewMode()));
-    Result->SetBoolField(TEXT("is_perspective"), ViewportClient->IsPerspective());
-    Result->SetBoolField(TEXT("is_realtime"), ViewportClient->IsRealtime());
-    Result->SetStringField(TEXT("viewport_type"), UnrealMCPEditorCommandsPrivate::ViewportTypeToString(ViewportClient->ViewportType));
-
-    if (ViewportClient->Viewport)
-    {
-        UnrealMCPEditorCommandsPrivate::SetIntPointField(Result, TEXT("viewport_size"), ViewportClient->Viewport->GetSizeXY());
-    }
-
-    return Result;
+    return FUnrealMCPCommonUtils::ExecuteLocalPythonCommand(
+        TEXT("commands.editor.editor_commands"),
+        TEXT("handle_editor_command"),
+        TEXT("get_viewport_camera"),
+        Params);
 }
 
 /**
